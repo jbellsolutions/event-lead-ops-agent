@@ -13,7 +13,11 @@ You have been given this repository to implement an approval-gated event-busines
 7. Deploy into the existing Hermes Mac1 VPS and reuse its existing Slack app/gateway.
 8. Keep Craigslist and Facebook in `observe` mode until their live read-only gates pass.
 9. Keep all posting and replies approval-gated.
-10. Report exact tests, live evidence, achieved counts, and blockers without exposing credentials.
+10. Build every writer so it retains the original execution reservation, calls
+    `mark_action_submitting()` once immediately before platform submit, and uses
+    only that call's immutable returned payload. Never submit from a proposal or
+    caller-owned payload dictionary.
+11. Report exact tests, live evidence, achieved counts, and blockers without exposing credentials.
 
 ## Start Here
 

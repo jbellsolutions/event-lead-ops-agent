@@ -76,9 +76,19 @@ draft -> pending_approval -> approved -> executing -> [submission_started_at] ->
 
 `submission_started_at` is a durable boundary on the action row, not a separate
 status value. The writer records it immediately before the first platform-side
-submit. Terminal evidence is an owner-only JSON manifest bound to the exact
-source, account, proposal, action, runtime, outcome, and result identity; SQLite
-stores its SHA-256.
+submit. Each new action also stores immutable canonical `payload_json` and its
+hash. SQLite triggers make proposal identity, approval identity, and action
+reservation identity immutable; action insertion must join the exact approved
+proposal and approval. SQLite stores only a one-use execution-capability hash;
+the raw capability stays with the successful reserver and is consumed by the
+same transaction that sets the one-way `submission_started_at` marker. That
+transaction decodes and freezes the payload from the action row itself, rather
+than from caller-controlled reservation properties. Every terminal or
+reconciliation transition also consumes any remaining capability, and SQLite
+rejects reopening a terminal action as `executing`. Terminal evidence is an
+owner-only JSON manifest
+bound to the exact source, account, proposal, action, runtime, outcome, and
+result identity; SQLite stores its SHA-256.
 
 ### Source health
 

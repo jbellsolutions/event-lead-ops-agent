@@ -14,7 +14,7 @@ No component is “working” without evidence at the relevant layer.
 - Expired/consumed approvals fail closed.
 - Unknown Slack member IDs cannot approve.
 - Source mode/health/certification are loaded from SQLite, not caller arguments.
-- Current runtime fingerprint and same-process profile-lock lease match the
+- Current runtime fingerprint and exact custodian-owned profile-lock lease match the
   certified reservation through terminal recording.
 - Certification older than 24 hours fails closed.
 - A second browser process cannot own the same profile.
@@ -22,7 +22,13 @@ No component is “working” without evidence at the relevant layer.
   action-bound JSON evidence manifest inside the certified evidence root; its
   hash is persisted and rechecked before any retry.
 - The executor records a durable submission marker immediately before the first
-  platform-side submit. Post-marker uncertainty can only reconcile, never retry.
+  platform-side submit. The same transaction consumes a one-use execution
+  capability and returns the immutable SQLite-owned payload; caller-held payloads
+  are not adapter inputs. Post-marker uncertainty can only reconcile, never retry.
+- SQLite rejects proposal/approval identity rewrites, mismatched action snapshots,
+  action runtime/profile/evidence reservation rewrites, restored capabilities,
+  cleared or replaced submission markers, terminal outcomes with live
+  capabilities, and terminal-status rollback to `executing`.
 - Stale/ambiguous executions require reconciliation; only evidenced
   `confirmed_no_submit` retries get one new attempt after persisted cooldown.
 - `observe` and `draft` modes reject external execution.

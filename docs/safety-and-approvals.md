@@ -19,7 +19,16 @@ During the initial pilot:
 6. Create a single-use approval tied to the exact proposed-action ID and payload hash.
 7. Expire approval after no more than 30 minutes.
 8. Reload proposal/approval from SQLite at execution; never trust caller-constructed metadata.
-9. Consume approval atomically with the execution reservation.
+9. Consume approval atomically with the execution reservation and persist the
+   exact canonical payload snapshot on the action row.
+10. Give only the successful reserver a one-use opaque capability. Immediately
+    before submit, revalidate the reservation against SQLite, consume that
+    capability, write the durable submission marker, and return a recursively
+    immutable payload. The platform adapter must use only that returned payload.
+11. Enforce the identity chain in SQLite: proposal and approval identity cannot
+    be rewritten; action insertion must match the exact approved rows; action
+    runtime/profile/evidence reservation fields are immutable; capability
+    consumption and the submission marker are one-way transitions.
 
 A changed payload is a new proposal and requires new approval.
 
@@ -46,12 +55,15 @@ The key includes canonical source, account alias, campaign identity, action type
 
 - Identical proposal creation returns the persisted proposal.
 - Two simultaneous reservations resolve to one executor and one harmless no-op.
+- Duplicate reservations receive no execution capability, and the raw capability
+  is never persisted; SQLite stores only its SHA-256 until pre-submit consumption.
 - A stale `executing` action is marked `needs_reconciliation` after the configured timeout.
 - `needs_reconciliation` is never automatically retried.
 - `failed` is accepted only before the durable submission marker and only as an
   evidenced `confirmed_no_submit`. The executor must call
   `mark_action_submitting()` immediately before the first platform-side submit;
-  after that point, any uncertain result is `needs_reconciliation`.
+  the adapter must submit only from that call's immutable return value. After
+  that point, any uncertain result is `needs_reconciliation`.
 - A confirmed no-submit may be retried only after the database-owned campaign
   cooldown by creating one linked `retry_of` attempt and obtaining a new approval.
 - A `succeeded` action cannot be retried.

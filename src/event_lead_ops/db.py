@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
+import secrets
 import sqlite3
 import stat
 import time
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .models import HealthStatus, OperationMode, ProposedAction, RuntimeIdentity, SourceRecord
+from .models import (
+    ExecutionReservation,
+    HealthStatus,
+    OperationMode,
+    ProposedAction,
+    RuntimeIdentity,
+    SourceRecord,
+)
 from .policy import (
     ApprovalEnvelope,
     assert_write_allowed,
@@ -694,11 +704,13 @@ def begin_approved_action(
     runtime: RuntimeIdentity,
     profile_lock: ProfileLock,
     now: datetime | None = None,
-) -> tuple[str, bool]:
-    """Atomically consume approval. Return (action_id, should_execute_platform_action)."""
+) -> ExecutionReservation:
+    """Consume approval and return only the database-owned execution payload."""
     now = now or datetime.now(UTC)
     profile_lock.assert_owned(runtime.profile_dir)
     action_id = uuid.uuid4().hex
+    execution_token = secrets.token_urlsafe(32)
+    execution_token_hash = hashlib.sha256(execution_token.encode()).hexdigest()
     try:
         db.execute("BEGIN IMMEDIATE")
         stored_action = db.execute(
@@ -735,7 +747,8 @@ def begin_approved_action(
         if approval_row["payload_hash"] != payload_hash(current_payload):
             raise RuntimeError("stored approval payload hash does not match")
         existing = db.execute(
-            "SELECT id, approval_id, status, started_at FROM actions WHERE idempotency_key=?",
+            """SELECT id, approval_id, status, started_at, payload_json, payload_hash
+            FROM actions WHERE idempotency_key=?""",
             (stored_action["idempotency_key"],),
         ).fetchone()
         if existing:
@@ -754,7 +767,7 @@ def begin_approved_action(
                 if started_at + timeout <= now:
                     db.execute(
                         """UPDATE actions SET status='needs_reconciliation', finished_at=?,
-                        error_class='stale_execution',
+                        execution_token_hash=NULL, error_class='stale_execution',
                         error_detail='execution timeout; verify platform before retry'
                         WHERE id=?""",
                         (iso(now), existing["id"]),
@@ -767,7 +780,11 @@ def begin_approved_action(
                     db.commit()
                     raise RuntimeError("stale execution requires reconciliation")
             db.rollback()
-            return existing["id"], False
+            return ExecutionReservation(
+                action_id=existing["id"],
+                payload_json=existing["payload_json"],
+                payload_hash=existing["payload_hash"],
+            )
         if approval_row["status"] != "approved":
             raise RuntimeError("approval is not available for consumption")
         policy = db.execute(
@@ -819,12 +836,14 @@ def begin_approved_action(
         db.execute(
             """INSERT INTO actions
             (id, proposed_action_id, approval_id, source, action_type, idempotency_key,
-             payload_hash, status, started_at, runtime_fingerprint,
+             payload_json, payload_hash, execution_token_hash, status, started_at,
+             runtime_fingerprint,
              profile_lock_lease_id, evidence_root)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'executing', ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'executing', ?, ?, ?, ?)""",
             (
                 action_id, proposed.id, approval.approval_id, proposed.source,
-                proposed.action_type, proposed.idempotency_key, proposed.payload_hash, iso(now),
+                proposed.action_type, proposed.idempotency_key, stored_payload_json,
+                proposed.payload_hash, execution_token_hash, iso(now),
                 runtime.fingerprint, profile_lock.lease_id, runtime.evidence_root,
             ),
         )
@@ -840,22 +859,29 @@ def begin_approved_action(
     except Exception:
         db.rollback()
         raise
-    return action_id, True
+    return ExecutionReservation(
+        action_id=action_id,
+        payload_json=stored_payload_json,
+        payload_hash=stored_action["payload_hash"],
+        execution_token=execution_token,
+    )
 
 
 def mark_action_submitting(
     db: sqlite3.Connection,
-    action_id: str,
+    reservation: ExecutionReservation,
     *,
     runtime: RuntimeIdentity,
     profile_lock: ProfileLock,
-) -> None:
-    """Durably mark the point immediately before the first platform-side submit."""
+) -> Mapping[str, Any]:
+    """Revalidate and return the database-owned payload immediately before submit."""
+    action_id = reservation.action_id
     try:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute(
             """SELECT status, runtime_fingerprint, profile_lock_lease_id,
-            submission_started_at FROM actions WHERE id=?""",
+            submission_started_at, payload_json, payload_hash, execution_token_hash
+            FROM actions WHERE id=?""",
             (action_id,),
         ).fetchone()
         if row is None:
@@ -867,16 +893,41 @@ def mark_action_submitting(
         )
         if runtime.fingerprint != row["runtime_fingerprint"]:
             raise RuntimeError("action runtime does not match reserved runtime")
+        supplied_token_hash = hashlib.sha256(
+            (reservation.execution_token or "").encode()
+        ).hexdigest()
+        if (
+            not reservation.should_execute
+            or not row["execution_token_hash"]
+            or not hmac.compare_digest(supplied_token_hash, row["execution_token_hash"])
+        ):
+            raise RuntimeError("execution claim is missing or invalid")
+        stored_payload = json.loads(row["payload_json"])
+        stored_payload_json = canonical_json(stored_payload)
+        if (
+            row["payload_json"] != stored_payload_json
+            or row["payload_hash"] != payload_hash(stored_payload)
+            or reservation.payload_json != stored_payload_json
+            or reservation.payload_hash != row["payload_hash"]
+        ):
+            raise RuntimeError("execution reservation payload does not match database snapshot")
         if row["submission_started_at"] is not None:
             raise RuntimeError("action submission was already marked")
+        execution_payload = ExecutionReservation(
+            action_id=action_id,
+            payload_json=stored_payload_json,
+            payload_hash=row["payload_hash"],
+        ).payload
         db.execute(
-            "UPDATE actions SET submission_started_at=? WHERE id=?",
+            """UPDATE actions SET submission_started_at=?, execution_token_hash=NULL
+            WHERE id=?""",
             (iso(), action_id),
         )
         db.commit()
     except Exception:
         db.rollback()
         raise
+    return execution_payload
 
 
 def finish_action(
@@ -1005,7 +1056,7 @@ def finish_action(
         db.execute(
             """UPDATE actions SET status=?, platform_external_id=?, platform_url=?,
             evidence_path=?, evidence_sha256=?, finished_at=?, error_class=?,
-            error_detail=? WHERE id=?""",
+            error_detail=?, execution_token_hash=NULL WHERE id=?""",
             (
                 status, platform_external_id, platform_url, evidence_path, evidence_sha256,
                 finished_at, error_class, error_detail, action_id,

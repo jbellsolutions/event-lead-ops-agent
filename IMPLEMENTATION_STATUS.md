@@ -20,8 +20,11 @@ This document prevents handoff ambiguity. Update it as executable milestones lan
   viewport, account, and profile identities
 - Campaign-aware idempotency, database-owned cooldown, evidenced no-submit retry,
   stale reconciliation, and terminal audit
-- Same-profile-lock-lease execution, a durable pre-submit marker, and owner-only
-  action-bound JSON evidence manifests with persisted SHA-256
+- Same-profile-lock-lease execution, an immutable database-owned action-payload
+  snapshot, a one-use pre-submit execution capability, a durable pre-submit
+  marker, and owner-only action-bound JSON evidence manifests with persisted SHA-256
+- SQLite-enforced immutable proposal, approval, action-payload, runtime, profile,
+  and evidence identity with exact authorization joins and one-way submit state
 - Fail-closed handling for edited payloads and unhealthy sources
 - Strict Craigslist/Facebook URL normalization and source aliasing
 - Validated business/platform/scoring/schedule configuration

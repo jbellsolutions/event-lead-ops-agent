@@ -1,9 +1,23 @@
 from __future__ import annotations
 
+import inspect
+from collections.abc import Mapping
+
 import pytest
 
+from event_lead_ops.models import ActionResult
+from event_lead_ops.sources.base import SourceAdapter
 from event_lead_ops.sources.craigslist import normalize_listing as normalize_craigslist
 from event_lead_ops.sources.facebook_marketplace import normalize_listing as normalize_facebook
+
+
+def test_source_adapter_accepts_only_prevalidated_immutable_payload():
+    signature = inspect.signature(SourceAdapter.execute_approved_action)
+    assert list(signature.parameters) == ["self", "payload"]
+    assert signature.parameters["payload"].annotation == "Mapping[str, Any]"
+    assert signature.return_annotation == "ActionResult"
+    assert Mapping is not None
+    assert ActionResult is not None
 
 
 def test_craigslist_normalization():

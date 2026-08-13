@@ -98,11 +98,15 @@ health() -> HealthReport
 collect(cursor: str | None) -> CollectionBatch
 normalize(raw: object) -> SourceRecord
 prepare_action(record_id: str, campaign_id: str) -> ProposedAction
-execute_approved_action(action: ApprovedAction) -> ActionResult
+execute_approved_action(payload: Mapping[str, object]) -> ActionResult
 poll_responses(cursor: str | None) -> ResponseBatch
 ```
 
-External-write methods must reject actions without a valid approval.
+Approval validation, execution reservation, runtime/profile-lock attestation, and
+the durable submission marker belong to the executor. It must pass the adapter
+only the recursively immutable SQLite-derived payload returned by
+`mark_action_submitting()`; never pass `ApprovedAction`, `ProposedAction`, or a
+caller-owned payload dictionary to an external-write method.
 
 ## Testing Expectations
 

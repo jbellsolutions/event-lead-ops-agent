@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 
@@ -130,6 +132,33 @@ class ApprovedAction:
     approval_id: str
     approver: str
     expires_at: datetime
+
+
+def _freeze_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionReservation:
+    action_id: str
+    payload_json: str
+    payload_hash: str
+    execution_token: str | None = field(default=None, repr=False)
+
+    @property
+    def should_execute(self) -> bool:
+        return self.execution_token is not None
+
+    @property
+    def payload(self) -> Mapping[str, Any]:
+        decoded = json.loads(self.payload_json)
+        if not isinstance(decoded, dict):
+            raise ValueError("execution payload must be a JSON object")
+        return _freeze_json(decoded)
 
 
 @dataclass(frozen=True, slots=True)

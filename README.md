@@ -183,7 +183,8 @@ Slack is the operator interface, not the canonical database.
 ├── migrations/
 │   ├── 001_initial.sql
 │   ├── 002_runtime_policy_and_retries.sql
-│   └── 003_runtime_binding_and_cooldowns.sql
+│   ├── 003_runtime_binding_and_cooldowns.sql
+│   └── 004_immutable_action_payload.sql
 ├── skills/
 │   └── event-lead-ops/SKILL.md
 ├── templates/

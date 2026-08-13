@@ -112,9 +112,15 @@ Do not include health detail text, evidence paths, profile paths, private URLs, 
 5. Executor checks authoritative source policy, exact runtime fingerprint,
    certification freshness, idempotency, and campaign cooldown.
 6. Executor acquires the certified profile itself and reserves once while
-   holding a unique lock lease.
-7. Immediately before the first platform-side submit, the executor durably
-   calls `mark_action_submitting()`.
+   holding a unique lock lease. SQLite snapshots the exact canonical payload on
+   the action row and returns one opaque execution capability only to the
+   successful reserver; duplicate callers receive no capability.
+7. Immediately before the first platform-side submit, the executor passes the
+   original reservation to `mark_action_submitting()`. That transaction
+   revalidates and consumes the capability, durably records the submission
+   boundary, and returns the recursively immutable database-owned payload.
+   The adapter must submit only from that returned payload, never from the
+   caller's proposal or `current_payload` dictionaries.
 8. The same process and lock lease span browser interaction and terminal
    action-bound JSON evidence recording inside the certified evidence root.
 9. Success requires matching platform ID/HTTPS URL; a pre-submit evidenced

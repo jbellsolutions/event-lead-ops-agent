@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import sqlite3
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -21,8 +23,14 @@ from event_lead_ops.db import (
     record_source_policy,
     upsert_campaign,
 )
-from event_lead_ops.models import HealthStatus, OperationMode, ProposedAction, RuntimeIdentity
-from event_lead_ops.policy import PolicyViolation
+from event_lead_ops.models import (
+    ExecutionReservation,
+    HealthStatus,
+    OperationMode,
+    ProposedAction,
+    RuntimeIdentity,
+)
+from event_lead_ops.policy import PolicyViolation, canonical_json, payload_hash
 from event_lead_ops.profile_lock import ProfileLock
 
 PAYLOAD = {
@@ -152,7 +160,7 @@ def begin_action(db, *, proposed, approval, runtime, **kwargs):
 @contextmanager
 def executing_action(db, *, proposed, approval, runtime, **kwargs):
     with ProfileLock(runtime.profile_dir) as lock:
-        action_id, should_execute = begin_approved_action(
+        reservation = begin_approved_action(
             db,
             proposed=proposed,
             current_payload=kwargs.pop("current_payload", proposed.payload),
@@ -161,7 +169,7 @@ def executing_action(db, *, proposed, approval, runtime, **kwargs):
             profile_lock=lock,
             **kwargs,
         )
-        yield action_id, should_execute, lock
+        yield reservation.action_id, reservation, lock
 
 
 def proposal(db, payload: dict | None = None):
@@ -200,7 +208,7 @@ def test_approved_action_executes_exactly_once(db, tmp_path):
     proposed = proposal(db)
     approval = approve(db, proposed)
     with ProfileLock(runtime.profile_dir) as lock:
-        action_id, should_execute = begin_approved_action(
+        reservation = begin_approved_action(
             db,
             proposed=proposed,
             current_payload=PAYLOAD,
@@ -208,8 +216,9 @@ def test_approved_action_executes_exactly_once(db, tmp_path):
             runtime=runtime,
             profile_lock=lock,
         )
-        assert should_execute is True
-        mark_action_submitting(db, action_id, runtime=runtime, profile_lock=lock)
+        action_id = reservation.action_id
+        assert reservation.should_execute is True
+        mark_action_submitting(db, reservation, runtime=runtime, profile_lock=lock)
         platform_url = (
             "https://tampa.craigslist.org/evg/d/tampa-test/1234567890.html"
         )
@@ -232,15 +241,153 @@ def test_approved_action_executes_exactly_once(db, tmp_path):
             profile_lock=lock,
         )
 
-    duplicate_id, should_execute_again = begin_action(
+    duplicate = begin_action(
         db,
         proposed=proposed,
         approval=approval,
         runtime=runtime,
     )
-    assert duplicate_id == action_id
-    assert should_execute_again is False
+    assert duplicate.action_id == action_id
+    assert duplicate.should_execute is False
     assert db.execute("SELECT COUNT(*) FROM actions").fetchone()[0] == 1
+
+
+def test_execution_reservation_uses_immutable_database_payload_snapshot(db):
+    approved_payload = {
+        **PAYLOAD,
+        "details": {"flags": [1, True]},
+    }
+    approved_payload_json = canonical_json(approved_payload)
+    approved_snapshot = json.loads(approved_payload_json)
+    runtime = configure_source(db)
+    proposed = proposal(db, approved_payload)
+    approval = approve(db, proposed)
+    current_payload = json.loads(approved_payload_json)
+
+    with ProfileLock(runtime.profile_dir) as lock:
+        reservation = begin_approved_action(
+            db,
+            proposed=proposed,
+            current_payload=current_payload,
+            approval=approval,
+            runtime=runtime,
+            profile_lock=lock,
+        )
+
+        proposed.payload["price"] = 1
+        proposed.payload["details"]["flags"][0] = 2
+        current_payload["price"] = 2
+        current_payload["details"]["flags"][1] = False
+
+        assert reservation.should_execute is True
+        assert reservation.payload_json == approved_payload_json
+        assert reservation.payload["price"] == approved_snapshot["price"]
+        assert reservation.payload["details"]["flags"] == (1, True)
+        with pytest.raises(TypeError):
+            reservation.payload["price"] = 3
+        with pytest.raises(TypeError):
+            reservation.payload["details"]["flags"][0] = 3
+
+        stored = db.execute(
+            """SELECT payload_json, payload_hash, execution_token_hash
+            FROM actions WHERE id=?""",
+            (reservation.action_id,),
+        ).fetchone()
+        assert stored["payload_json"] == approved_payload_json
+        assert stored["payload_hash"] == payload_hash(approved_snapshot)
+        assert reservation.execution_token not in tuple(stored)
+        assert stored["execution_token_hash"] == hashlib.sha256(
+            reservation.execution_token.encode()
+        ).hexdigest()
+
+        altered = ExecutionReservation(
+            action_id=reservation.action_id,
+            payload_json=canonical_json({**approved_snapshot, "price": 1}),
+            payload_hash=reservation.payload_hash,
+            execution_token=reservation.execution_token,
+        )
+        with pytest.raises(RuntimeError, match="payload does not match"):
+            mark_action_submitting(
+                db,
+                altered,
+                runtime=runtime,
+                profile_lock=lock,
+            )
+
+        class HostileReservation:
+            action_id = reservation.action_id
+            payload_json = reservation.payload_json
+            payload_hash = reservation.payload_hash
+            execution_token = reservation.execution_token
+            should_execute = True
+            payload = {"price": "attacker-controlled"}
+
+        submitted_payload = mark_action_submitting(
+            db,
+            HostileReservation(),
+            runtime=runtime,
+            profile_lock=lock,
+        )
+        assert submitted_payload == reservation.payload
+        with pytest.raises(TypeError):
+            submitted_payload["price"] = "attacker-controlled"
+        assert db.execute(
+            "SELECT execution_token_hash FROM actions WHERE id=?",
+            (reservation.action_id,),
+        ).fetchone()[0] is None
+        with pytest.raises(RuntimeError, match="execution claim"):
+            mark_action_submitting(
+                db,
+                reservation,
+                runtime=runtime,
+                profile_lock=lock,
+            )
+
+
+def test_duplicate_or_forged_reservation_cannot_cross_submit_boundary(db):
+    runtime = configure_source(db)
+    proposed = proposal(db)
+    approval = approve(db, proposed)
+
+    with ProfileLock(runtime.profile_dir) as lock:
+        reservation = begin_approved_action(
+            db,
+            proposed=proposed,
+            current_payload=PAYLOAD,
+            approval=approval,
+            runtime=runtime,
+            profile_lock=lock,
+        )
+        duplicate = begin_approved_action(
+            db,
+            proposed=proposed,
+            current_payload=PAYLOAD,
+            approval=approval,
+            runtime=runtime,
+            profile_lock=lock,
+        )
+        assert duplicate.should_execute is False
+
+        with pytest.raises(RuntimeError, match="execution claim"):
+            mark_action_submitting(
+                db,
+                ExecutionReservation(
+                    action_id=duplicate.action_id,
+                    payload_json=duplicate.payload_json,
+                    payload_hash=duplicate.payload_hash,
+                    execution_token="forged-execution-token",
+                ),
+                runtime=runtime,
+                profile_lock=lock,
+            )
+
+        submitted_payload = mark_action_submitting(
+            db,
+            reservation,
+            runtime=runtime,
+            profile_lock=lock,
+        )
+        assert submitted_payload == reservation.payload
 
 
 def test_forged_proposed_action_cannot_be_approved(db):
@@ -446,7 +593,7 @@ def test_payload_key_order_does_not_change_approved_json_identity(db):
         "title": approved_payload["title"],
     }
     with ProfileLock(runtime.profile_dir) as lock:
-        action_id, created = begin_approved_action(
+        reservation = begin_approved_action(
             db,
             proposed=replace(proposed, payload=reordered_payload),
             current_payload=reordered_payload,
@@ -455,9 +602,9 @@ def test_payload_key_order_does_not_change_approved_json_identity(db):
             profile_lock=lock,
         )
     stored = db.execute(
-        "SELECT proposed_action_id FROM actions WHERE id=?", (action_id,)
+        "SELECT proposed_action_id FROM actions WHERE id=?", (reservation.action_id,)
     ).fetchone()
-    assert created is True
+    assert reservation.should_execute is True
     assert stored["proposed_action_id"] == proposed.id
 
 
@@ -471,6 +618,35 @@ def test_edited_current_payload_cannot_reach_executor(db):
                 db,
                 proposed=proposed,
                 current_payload={**PAYLOAD, "price": 1},
+                approval=approval,
+                runtime=runtime,
+                profile_lock=lock,
+            )
+
+
+@pytest.mark.parametrize(
+    ("approved_value", "edited_value"),
+    [
+        (1, True),
+        (0, False),
+        (1, 1.0),
+        ({"nested": [1, True]}, {"nested": [1, 1]}),
+    ],
+)
+def test_json_distinct_current_payload_cannot_reach_executor(
+    db, approved_value, edited_value
+):
+    approved_payload = {**PAYLOAD, "value": approved_value}
+    runtime = configure_source(db)
+    proposed = proposal(db, approved_payload)
+    approval = approve(db, proposed)
+    edited_payload = {**approved_payload, "value": edited_value}
+    with ProfileLock(runtime.profile_dir) as lock:
+        with pytest.raises(RuntimeError, match="executor payload"):
+            begin_approved_action(
+                db,
+                proposed=proposed,
+                current_payload=edited_payload,
                 approval=approval,
                 runtime=runtime,
                 profile_lock=lock,
@@ -508,7 +684,7 @@ def test_success_requires_durable_submission_marker(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
+    ) as (action_id, reservation, lock):
         with pytest.raises(ValueError, match="submission marker"):
             finish_action(
                 db,
@@ -527,8 +703,8 @@ def test_success_requires_platform_identity_and_evidence(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
-        mark_action_submitting(db, action_id, runtime=runtime, profile_lock=lock)
+    ) as (action_id, reservation, lock):
+        mark_action_submitting(db, reservation, runtime=runtime, profile_lock=lock)
         with pytest.raises(ValueError, match="requires an existing evidence"):
             finish_action(
                 db,
@@ -549,8 +725,8 @@ def test_success_requires_https_platform_url(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
-        mark_action_submitting(db, action_id, runtime=runtime, profile_lock=lock)
+    ) as (action_id, reservation, lock):
+        mark_action_submitting(db, reservation, runtime=runtime, profile_lock=lock)
         platform_url = "http://localhost/result"
         evidence = write_evidence(
             runtime,
@@ -579,8 +755,8 @@ def test_success_rejects_off_platform_or_mismatched_identity(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
-        mark_action_submitting(db, action_id, runtime=runtime, profile_lock=lock)
+    ) as (action_id, reservation, lock):
+        mark_action_submitting(db, reservation, runtime=runtime, profile_lock=lock)
         off_platform_url = "https://example.com/evg/d/test/1234567890.html"
         evidence = write_evidence(
             runtime,
@@ -629,8 +805,8 @@ def test_success_requires_existing_evidence_file(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
-        mark_action_submitting(db, action_id, runtime=runtime, profile_lock=lock)
+    ) as (action_id, reservation, lock):
+        mark_action_submitting(db, reservation, runtime=runtime, profile_lock=lock)
         with pytest.raises(ValueError, match="existing evidence"):
             finish_action(
                 db,
@@ -650,8 +826,8 @@ def test_success_rejects_evidence_manifest_for_another_action(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
-        mark_action_submitting(db, action_id, runtime=runtime, profile_lock=lock)
+    ) as (action_id, reservation, lock):
+        mark_action_submitting(db, reservation, runtime=runtime, profile_lock=lock)
         platform_url = "https://tampa.craigslist.org/evg/d/test/1234567890.html"
         evidence = write_evidence(
             runtime,
@@ -680,7 +856,7 @@ def test_unrelated_approval_cannot_reconcile_stale_execution(db):
     proposed = proposal(db)
     approval = approve(db, proposed)
     with ProfileLock(runtime.profile_dir) as lock:
-        action_id, _ = begin_approved_action(
+        reservation = begin_approved_action(
             db,
             proposed=proposed,
             current_payload=PAYLOAD,
@@ -689,6 +865,7 @@ def test_unrelated_approval_cannot_reconcile_stale_execution(db):
             profile_lock=lock,
             now=start,
         )
+        action_id = reservation.action_id
         forged = type(approval)(
             approval_id="unrelated",
             proposed_action_id=proposed.id,
@@ -729,7 +906,7 @@ def test_failed_action_requires_evidenced_confirmed_no_submit(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
+    ) as (action_id, reservation, lock):
         with pytest.raises(ValueError, match="confirmed_no_submit"):
             finish_action(
                 db,
@@ -747,7 +924,7 @@ def test_failed_action_rejects_platform_result_identity(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
+    ) as (action_id, reservation, lock):
         evidence = write_evidence(
             runtime,
             action_id=action_id,
@@ -775,8 +952,8 @@ def test_marked_submission_cannot_be_recorded_as_confirmed_no_submit(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
-        mark_action_submitting(db, action_id, runtime=runtime, profile_lock=lock)
+    ) as (action_id, reservation, lock):
+        mark_action_submitting(db, reservation, runtime=runtime, profile_lock=lock)
         evidence = write_evidence(
             runtime,
             action_id=action_id,
@@ -810,8 +987,8 @@ def test_reconciliation_rejects_off_platform_identity(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
-        mark_action_submitting(db, action_id, runtime=runtime, profile_lock=lock)
+    ) as (action_id, reservation, lock):
+        mark_action_submitting(db, reservation, runtime=runtime, profile_lock=lock)
         with pytest.raises(ValueError, match="Craigslist URL"):
             finish_action(
                 db,
@@ -831,7 +1008,7 @@ def test_listing_retry_honors_persisted_campaign_cooldown(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
+    ) as (action_id, reservation, lock):
         evidence = write_evidence(
             runtime,
             action_id=action_id,
@@ -848,6 +1025,13 @@ def test_listing_retry_honors_persisted_campaign_cooldown(db):
             runtime=runtime,
             profile_lock=lock,
         )
+        terminal = db.execute(
+            "SELECT status, execution_token_hash FROM actions WHERE id=?", (action_id,)
+        ).fetchone()
+        assert tuple(terminal) == ("failed", None)
+        with pytest.raises(sqlite3.IntegrityError, match="cannot reopen execution"):
+            db.execute("UPDATE actions SET status='executing' WHERE id=?", (action_id,))
+        db.rollback()
 
     with pytest.raises(RuntimeError, match="cooldown"):
         create_retry_proposed_action(db, proposed.id)
@@ -870,7 +1054,7 @@ def test_retry_rejects_evidence_mutated_after_failure(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
+    ) as (action_id, reservation, lock):
         evidence = write_evidence(
             runtime,
             action_id=action_id,
@@ -904,7 +1088,7 @@ def test_retry_blocks_when_fresh_variant_already_pending(db):
     approval = approve(db, proposed)
     with executing_action(
         db, proposed=proposed, approval=approval, runtime=runtime
-    ) as (action_id, _, lock):
+    ) as (action_id, reservation, lock):
         evidence = write_evidence(
             runtime,
             action_id=action_id,
@@ -936,7 +1120,7 @@ def test_stale_execution_moves_to_reconciliation(db):
     proposed = proposal(db)
     approval = approve(db, proposed, expires_at=start + timedelta(minutes=30))
     with ProfileLock(runtime.profile_dir) as lock:
-        action_id, _ = begin_approved_action(
+        reservation = begin_approved_action(
             db,
             proposed=proposed,
             current_payload=PAYLOAD,
@@ -945,6 +1129,7 @@ def test_stale_execution_moves_to_reconciliation(db):
             profile_lock=lock,
             now=start,
         )
+        action_id = reservation.action_id
         with pytest.raises(RuntimeError, match="requires reconciliation"):
             begin_approved_action(
                 db,
@@ -955,6 +1140,7 @@ def test_stale_execution_moves_to_reconciliation(db):
                 profile_lock=lock,
                 now=start + timedelta(minutes=2),
             )
-    assert db.execute("SELECT status FROM actions WHERE id=?", (action_id,)).fetchone()[0] == (
-        "needs_reconciliation"
-    )
+    terminal = db.execute(
+        "SELECT status, execution_token_hash FROM actions WHERE id=?", (action_id,)
+    ).fetchone()
+    assert tuple(terminal) == ("needs_reconciliation", None)
