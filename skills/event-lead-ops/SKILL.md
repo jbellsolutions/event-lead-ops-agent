@@ -15,13 +15,22 @@ metadata:
 
 ## Overview
 
-Operate an event-business lead system on Craigslist and Facebook Marketplace through an always-on Hermes VPS. Collection and drafting may run automatically after certification; every initial post, listing, and reply requires an exact, expiring approval.
+Operate the implemented event-lead-ops scaffold on an always-on Hermes VPS.
+Currently implemented operations are configuration validation, database setup,
+redacted status/health, approver administration, normalization/scoring library
+code, and the approval-gated execution state machine. Live collection, drafting,
+Slack routing, response polling, and platform writers remain unimplemented and
+must not be scheduled or represented as operational.
 
-The canonical database and repository configuration control state. Slack is the operator interface, not the source of truth.
+The canonical database and repository configuration control state. Slack is the
+intended operator interface, but project-specific Slack routing is not connected
+yet and Slack will never be the source of truth.
 
 ## When to Use
 
-Use this skill when the operator asks to:
+Use this skill for implemented status/configuration/database operations and to
+evaluate requests against the future contracts below. For an unimplemented
+operation, report the blocker; do not attempt or simulate it.
 
 - Check event lead-ops or browser health
 - Collect Craigslist or Facebook Marketplace opportunities
@@ -65,30 +74,45 @@ When mode is unclear, use `observe`. Never infer approval from casual language.
 1. **Resolve scope.** Identify source, account alias, requested operation, campaign, and mode. Completion: exactly one bounded job is defined.
 2. **Run the browser council.** For new live workflows or route changes, execute the five-round comparison in `docs/browser-execution-council.md`. Completion: primary/fallback route and verification contract are recorded.
 3. **Check health.** Read current health, browser route, certification age, and pause state. Completion: source is `healthy` for the exact route or work stops.
-4. **Run deterministic code.** Use the project CLI/library for status, collection, normalization, scoring, approvals, and audit. Completion: a job run and counts are recorded.
+4. **Run only implemented deterministic code.** The CLI currently supports
+   database setup, redacted status/health, configuration validation, and approver
+   administration. Normalization, scoring, approval, and audit primitives are
+   callable library APIs. Reject collection, drafting, Slack routing, response
+   polling, and platform execution requests as “not implemented” until executable
+   commands, tests, and deployment evidence exist.
 5. **Preserve evidence.** Save redacted artifacts outside Git. Completion: evidence path/hash is attached to the record or action.
 6. **Apply policy.** Reject prohibited actions, duplicates, expired approvals, changed payloads, or unhealthy sources. Completion: the decision is auditable.
-7. **Report in Slack.** Include stable IDs, counts, health changes, blockers, and pending approvals without secrets. Completion: operator can choose the next action.
+7. **Report through the available operator channel.** Include stable IDs, counts,
+   health changes, blockers, and pending approvals without secrets. Use Slack only
+   after project-specific routing is implemented and verified. Completion: the
+   operator can choose the next action.
 
-## Read-Only Collection
+## Future Read-Only Collection Contract — Not Implemented
 
 ### Craigslist
 
-Public Tampa searches may run without login after a bounded pilot. Enforce configured pages, delays, search/category allowlist, and canonical listing IDs. Never reply to discovered ads automatically.
+When implemented and certified, public Tampa searches may run without login
+after a bounded pilot. Enforce configured pages, delays, search/category
+allowlist, and canonical listing IDs. Never reply to discovered ads automatically.
 
 ### Facebook Marketplace
 
-Use only the certified persistent browser profile. Confirm expected Marketplace and Tampa context without exposing private identity. Stop on checkpoint, CAPTCHA, warning, account-change prompt, or selector-contract failure.
+When implemented, use only the certified persistent browser profile. Confirm
+expected Marketplace and Tampa context without exposing private identity. Stop
+on checkpoint, CAPTCHA, warning, account-change prompt, or selector-contract
+failure.
 
-## Drafting
+## Future Drafting Contract — Not Implemented
 
 A draft must include platform, account alias, campaign, title, description, category, price, location, media list, claims, duplicate/cooldown result, and risk flags. Validate business facts against local untracked configuration.
 
 Editing a draft changes its hash and requires a new approval.
 
-## Approval and Execution
+## Future Platform-Execution Contract — Writer Not Implemented
 
-Before an external write:
+The database state machine below is implemented and tested, but no platform
+writer invokes it. A future writer must complete every step before an external
+write:
 
 1. Verify source mode is `approved_write` and health is `healthy`.
 2. Load one `approved` and unexpired approval for the proposed action.
@@ -101,9 +125,12 @@ Before an external write:
 
 If submission state is ambiguous, do not retry. Reconcile the platform account first.
 
-## Response Monitoring
+## Future Response-Monitoring Contract — Not Implemented
 
-Poll only threads tied to the operator's own listings/ads. Use a deterministic cursor and dedupe by external message ID. Classify and draft replies, but require approval. Escalate pricing, availability, deposits, contracts, refunds, disputes, emergencies, and unusual requests.
+When implemented, poll only threads tied to the operator's own listings/ads. Use
+a deterministic cursor and dedupe by external message ID. Classify and draft
+replies, but require approval. Escalate pricing, availability, deposits,
+contracts, refunds, disputes, emergencies, and unusual requests.
 
 ## Pause Conditions
 

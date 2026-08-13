@@ -117,4 +117,6 @@ Every job records:
 - Error class
 - Approval/action IDs where relevant
 
-Alerts fire on state transitions, not every failed poll.
+Future alerting must persist and compare prior state so alerts fire on state
+transitions rather than every failed poll. Transition detection and delivery are
+not implemented in this scaffold.

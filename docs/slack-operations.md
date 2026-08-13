@@ -130,9 +130,11 @@ Do not include health detail text, evidence paths, profile paths, private URLs, 
 
 Duplicate approval clicks and execution requests must be harmless.
 
-## Alerts
+## Future alerts contract — not implemented
 
-Alert on state transitions:
+Persisted transition detection and project-specific Slack alert routing are not
+implemented. A future adapter may alert on these state transitions only after it
+stores and compares prior state:
 
 - healthy -> challenged/blocked/rate-limited,
 - certification expired,

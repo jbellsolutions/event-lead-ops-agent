@@ -10,7 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from event_lead_ops.db import record_source_health, upsert_source_record
+from event_lead_ops.db import (
+    _parse_database_timestamp,
+    iso,
+    record_source_health,
+    upsert_source_record,
+)
 from event_lead_ops.models import HealthStatus, SourceRecord
 
 PUBLIC_001_SHA256 = "e255c2a8fc6bd30aa06dc6c0c81b707b7c83e6abad2d5de916a20820e9da958f"
@@ -31,6 +36,25 @@ def record(title: str = "Wedding event help needed") -> SourceRecord:
 def test_migration_creates_expected_tables(db):
     names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"source_records", "proposed_actions", "approvals", "actions", "job_runs"} <= names
+
+
+def test_iso_rejects_naive_timestamp():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        iso(datetime.now())
+
+
+def test_database_timestamp_parser_rejects_naive_or_malformed_values():
+    with pytest.raises(RuntimeError, match="database timestamp is not timezone-aware"):
+        _parse_database_timestamp("2026-08-13T04:00:00", field="certified_at")
+    with pytest.raises(RuntimeError, match="database timestamp is invalid"):
+        _parse_database_timestamp("not-a-timestamp", field="expires_at")
+
+
+def test_database_timestamp_parser_normalizes_aware_values():
+    parsed = _parse_database_timestamp(
+        "2026-08-13T09:30:00+05:30", field="certified_at"
+    )
+    assert parsed == datetime(2026, 8, 13, 4, 0, tzinfo=UTC)
 
 
 def test_migrations_are_recorded_once(db):

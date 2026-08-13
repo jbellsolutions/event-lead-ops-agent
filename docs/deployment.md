@@ -161,11 +161,15 @@ releasing it.
   "skills": ["event-lead-ops"],
   "enabled_toolsets": ["terminal"],
   "workdir": "/home/hermes/event-lead-ops",
-  "prompt": "Run .venv/bin/event-lead-ops --db /home/hermes/.local/share/event-lead-ops/state/event-lead-ops.sqlite3 health. Return the exact redacted JSON summary and alert only on a health-state transition. Do not navigate, collect, post, reply, approve, execute, pay, or schedule another job."
+  "prompt": "Run .venv/bin/event-lead-ops --db /home/hermes/.local/share/event-lead-ops/state/event-lead-ops.sqlite3 health. Return the exact redacted JSON summary on every run. Do not claim transition-only alerting: persisted transition tracking is not implemented. Do not navigate, collect, post, reply, approve, execute, pay, or schedule another job."
 }
 ```
 
-List jobs and record the returned job ID. Do **not** schedule `collect`, `score`, `report`, or `responses poll`: those CLI commands are not implemented yet. Do not pin a model/provider unless the operator explicitly requires it; the health job needs no browser credentials or environment injection.
+List jobs and record the returned job ID. This is a recurring health snapshot,
+not transition-only alerting. Do **not** schedule `collect`, `score`, `report`, or
+`responses poll`: those CLI commands are not implemented yet. Do not pin a
+model/provider unless the operator explicitly requires it; the health job needs
+no browser credentials or environment injection.
 
 ## 12. Deployment acceptance
 

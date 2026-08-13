@@ -474,6 +474,21 @@ def test_health_certification_rejects_future_timestamp(db):
             )
 
 
+def test_health_certification_rejects_naive_timestamp(db):
+    runtime = runtime_identity(db)
+    with ProfileLock(runtime.profile_dir) as lock:
+        with pytest.raises(ValueError, match="timezone-aware"):
+            record_source_health(
+                db,
+                source="craigslist",
+                status=HealthStatus.HEALTHY,
+                route=runtime.route,
+                certified_at=datetime.now(),
+                runtime=runtime,
+                profile_lock=lock,
+            )
+
+
 def test_approval_expiry_must_be_positive_and_at_most_30_minutes(db):
     proposed = proposal(db)
     record_authorized_approver(
@@ -496,6 +511,39 @@ def test_approval_expiry_must_be_positive_and_at_most_30_minutes(db):
             approver=APPROVER,
             expires_at=now + timedelta(minutes=31),
         )
+
+
+def test_approval_expiry_rejects_naive_timestamp(db):
+    proposed = proposal(db)
+    record_authorized_approver(
+        db,
+        external_user_id=APPROVER,
+        operator_alias="owner",
+    )
+    with pytest.raises(ValueError, match="timezone-aware"):
+        create_approval(
+            db,
+            proposed,
+            approver=APPROVER,
+            expires_at=datetime.now(),
+        )
+
+
+def test_execution_reservation_rejects_naive_clock(db):
+    runtime = configure_source(db)
+    proposed = proposal(db)
+    approval = approve(db, proposed)
+    with ProfileLock(runtime.profile_dir) as lock:
+        with pytest.raises(ValueError, match="timezone-aware"):
+            begin_approved_action(
+                db,
+                proposed=proposed,
+                current_payload=PAYLOAD,
+                approval=approval,
+                runtime=runtime,
+                profile_lock=lock,
+                now=datetime.now(),
+            )
 
 
 def test_runtime_mismatch_or_missing_lock_blocks_write(db):
@@ -676,6 +724,34 @@ def test_execution_rejects_future_dated_certification_in_database(db):
                 runtime=runtime,
                 profile_lock=lock,
             )
+
+
+def test_naive_database_certification_fails_closed_without_consuming_approval(db):
+    runtime = configure_source(db)
+    proposed = proposal(db)
+    approval = approve(db, proposed)
+    db.execute(
+        "UPDATE source_health SET certified_at=? WHERE source=? AND account_alias=?",
+        ("2026-08-13T04:00:00", proposed.source, proposed.account_alias),
+    )
+    db.commit()
+    with ProfileLock(runtime.profile_dir) as lock:
+        with pytest.raises(RuntimeError, match="source_health.certified_at"):
+            begin_approved_action(
+                db,
+                proposed=proposed,
+                current_payload=PAYLOAD,
+                approval=approval,
+                runtime=runtime,
+                profile_lock=lock,
+            )
+    assert db.execute("SELECT COUNT(*) FROM actions").fetchone()[0] == 0
+    assert db.execute(
+        "SELECT status FROM approvals WHERE id=?", (approval.approval_id,)
+    ).fetchone()[0] == "approved"
+    assert db.execute(
+        "SELECT status FROM proposed_actions WHERE id=?", (proposed.id,)
+    ).fetchone()[0] == "approved"
 
 
 def test_success_requires_durable_submission_marker(db):

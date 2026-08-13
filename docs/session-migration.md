@@ -72,9 +72,10 @@ Not part of the initial event MVP. Prefer its documented authenticated API/token
 6. Run the platform's read-only acceptance gate.
 7. Save a redacted health record and screenshot outside Git.
 8. Mark the certification with route, egress class, browser version, and date.
-9. Set `certification_expires_at` no later than 24 hours after certification.
-   Any route, egress, proxy, browser-major-version, profile, account alias,
-   provider, or headed/headless-mode change invalidates it immediately.
+9. Persist `certified_at`; the database derives expiry using the source policy's
+   `certification_ttl_hours`, which may not exceed 24. Any route, egress, proxy,
+   browser-major-version, profile, account alias, provider, or headed/headless-mode
+   change invalidates it immediately.
 10. Enable `observe` mode only.
 11. Re-run certification after any invalidating environment change.
 

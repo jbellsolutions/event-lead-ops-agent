@@ -45,7 +45,20 @@ MIGRATIONS_DIR = (
 
 
 def iso(value: datetime | None = None) -> str:
-    return (value or datetime.now(UTC)).astimezone(UTC).isoformat()
+    value = value or datetime.now(UTC)
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("database timestamps must be timezone-aware")
+    return value.astimezone(UTC).isoformat()
+
+
+def _parse_database_timestamp(value: str, *, field: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"database timestamp is invalid: {field}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise RuntimeError(f"database timestamp is not timezone-aware: {field}")
+    return parsed.astimezone(UTC)
 
 
 def _validate_action_evidence(
@@ -254,6 +267,9 @@ def record_source_health(
             or runtime.route != route
         ):
             raise ValueError("runtime identity does not match health identity")
+        if certified_at.tzinfo is None or certified_at.utcoffset() is None:
+            raise ValueError("health certification time must be timezone-aware")
+        certified_at = certified_at.astimezone(UTC)
         if certified_at > datetime.now(UTC):
             raise ValueError("health certification time cannot be in the future")
         profile_lock.assert_owned(runtime.profile_dir)
@@ -559,9 +575,9 @@ def create_retry_proposed_action(
                 raise RuntimeError(
                     f"another listing proposal already blocks retry: {competing['id']}"
                 )
-            retry_after = datetime.fromisoformat(action["finished_at"]) + timedelta(
-                hours=cooldown_hours
-            )
+            retry_after = _parse_database_timestamp(
+                action["finished_at"], field="actions.finished_at"
+            ) + timedelta(hours=cooldown_hours)
             if datetime.now(UTC) < retry_after:
                 raise RuntimeError("campaign cooldown blocks listing retry")
         existing_retry = db.execute(
@@ -617,7 +633,7 @@ def create_approval(
     provider: str = "slack",
 ) -> ApprovalEnvelope:
     created_at = datetime.now(UTC)
-    if expires_at.tzinfo is None:
+    if expires_at.tzinfo is None or expires_at.utcoffset() is None:
         raise ValueError("approval expiry must be timezone-aware")
     expires_at = expires_at.astimezone(UTC)
     if expires_at <= created_at:
@@ -707,6 +723,9 @@ def begin_approved_action(
 ) -> ExecutionReservation:
     """Consume approval and return only the database-owned execution payload."""
     now = now or datetime.now(UTC)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("execution clock must be timezone-aware")
+    now = now.astimezone(UTC)
     profile_lock.assert_owned(runtime.profile_dir)
     action_id = uuid.uuid4().hex
     execution_token = secrets.token_urlsafe(32)
@@ -762,7 +781,9 @@ def begin_approved_action(
                 ).fetchone()
                 if policy is None:
                     raise RuntimeError("database source policy is missing")
-                started_at = datetime.fromisoformat(existing["started_at"])
+                started_at = _parse_database_timestamp(
+                    existing["started_at"], field="actions.started_at"
+                )
                 timeout = timedelta(minutes=policy["execution_timeout_minutes"])
                 if started_at + timeout <= now:
                     db.execute(
@@ -813,7 +834,9 @@ def begin_approved_action(
             raise RuntimeError("current runtime does not match certified runtime")
         if Path(runtime.evidence_root).resolve() != Path(stored_health["evidence_root"]).resolve():
             raise RuntimeError("current evidence root does not match certification")
-        certified_at = datetime.fromisoformat(stored_health["certified_at"])
+        certified_at = _parse_database_timestamp(
+            stored_health["certified_at"], field="source_health.certified_at"
+        )
         if certified_at > now:
             raise RuntimeError("database source certification is future-dated")
         if certified_at + timedelta(hours=policy["certification_ttl_hours"]) <= now:
@@ -823,7 +846,9 @@ def begin_approved_action(
             proposed_action_id=approval_row["proposed_action_id"],
             approved_payload_hash=approval_row["payload_hash"],
             approver=approval_row["approver"],
-            expires_at=datetime.fromisoformat(approval_row["expires_at"]),
+            expires_at=_parse_database_timestamp(
+                approval_row["expires_at"], field="approvals.expires_at"
+            ),
         )
         assert_write_allowed(
             mode=OperationMode(policy["mode"]),
