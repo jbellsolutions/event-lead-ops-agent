@@ -406,6 +406,77 @@ def test_edited_proposed_payload_cannot_reach_executor(db):
             )
 
 
+@pytest.mark.parametrize(
+    ("approved_value", "edited_value"),
+    [
+        (1, True),
+        (0, False),
+        (1, 1.0),
+        ({"nested": [1, True]}, {"nested": [1, 1]}),
+    ],
+)
+def test_json_distinct_proposed_payload_cannot_reach_executor(
+    db, approved_value, edited_value
+):
+    approved_payload = {**PAYLOAD, "value": approved_value}
+    runtime = configure_source(db)
+    proposed = proposal(db, approved_payload)
+    approval = approve(db, proposed)
+    edited = replace(proposed, payload={**approved_payload, "value": edited_value})
+    with ProfileLock(runtime.profile_dir) as lock:
+        with pytest.raises(RuntimeError, match="executor payload"):
+            begin_approved_action(
+                db,
+                proposed=edited,
+                current_payload=approved_payload,
+                approval=approval,
+                runtime=runtime,
+                profile_lock=lock,
+            )
+
+
+def test_payload_key_order_does_not_change_approved_json_identity(db):
+    approved_payload = {"title": "Synthetic", "price": 100, "location": "Tampa"}
+    runtime = configure_source(db)
+    proposed = proposal(db, approved_payload)
+    approval = approve(db, proposed)
+    reordered_payload = {
+        "location": approved_payload["location"],
+        "price": approved_payload["price"],
+        "title": approved_payload["title"],
+    }
+    with ProfileLock(runtime.profile_dir) as lock:
+        action_id, created = begin_approved_action(
+            db,
+            proposed=replace(proposed, payload=reordered_payload),
+            current_payload=reordered_payload,
+            approval=approval,
+            runtime=runtime,
+            profile_lock=lock,
+        )
+    stored = db.execute(
+        "SELECT proposed_action_id FROM actions WHERE id=?", (action_id,)
+    ).fetchone()
+    assert created is True
+    assert stored["proposed_action_id"] == proposed.id
+
+
+def test_edited_current_payload_cannot_reach_executor(db):
+    runtime = configure_source(db)
+    proposed = proposal(db)
+    approval = approve(db, proposed)
+    with ProfileLock(runtime.profile_dir) as lock:
+        with pytest.raises(RuntimeError, match="executor payload"):
+            begin_approved_action(
+                db,
+                proposed=proposed,
+                current_payload={**PAYLOAD, "price": 1},
+                approval=approval,
+                runtime=runtime,
+                profile_lock=lock,
+            )
+
+
 def test_execution_rejects_future_dated_certification_in_database(db):
     runtime = configure_source(db)
     proposed = proposal(db)

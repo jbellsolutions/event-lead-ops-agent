@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from .models import HealthStatus, OperationMode, ProposedAction, RuntimeIdentity, SourceRecord
-from .policy import ApprovalEnvelope, assert_write_allowed, make_idempotency_key, payload_hash
+from .policy import (
+    ApprovalEnvelope,
+    assert_write_allowed,
+    canonical_json,
+    make_idempotency_key,
+    payload_hash,
+)
 from .profile_lock import ProfileLock
 from .sources.craigslist import canonicalize_url as canonicalize_craigslist_url
 from .sources.craigslist import listing_id_from_url as craigslist_id_from_url
@@ -711,8 +717,11 @@ def begin_approved_action(
             or stored_action["idempotency_key"] != proposed.idempotency_key
         ):
             raise RuntimeError("proposed action does not match stored action")
-        stored_payload = json.loads(stored_action["payload_json"])
-        if proposed.payload != stored_payload or current_payload != stored_payload:
+        stored_payload_json = canonical_json(json.loads(stored_action["payload_json"]))
+        if (
+            canonical_json(proposed.payload) != stored_payload_json
+            or canonical_json(current_payload) != stored_payload_json
+        ):
             raise RuntimeError("executor payload does not match stored approved payload")
         approval_row = db.execute(
             """SELECT proposed_action_id, status, payload_hash, approver, expires_at
