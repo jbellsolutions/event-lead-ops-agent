@@ -15,7 +15,7 @@ Deliver an approval-gated Tampa event-business MVP on the existing Hermes Mac1 V
 
 ## Milestone 1: Core State and Policies
 
-1. Apply `migrations/001_initial.sql`.
+1. Apply all unapplied SQL migrations in `migrations/` through `init_db()`.
 2. Implement config loading and schema validation.
 3. Implement source-record upsert and canonical dedupe.
 4. Implement proposed-action hashing.
@@ -77,9 +77,10 @@ Deliver an approval-gated Tampa event-business MVP on the existing Hermes Mac1 V
 
 1. Establish the Craigslist account profile with normal login.
 2. Navigate the posting flow without submitting.
-3. Confirm category/payment requirements.
-4. Obtain exact approval, including any price and payment boundary.
-5. Submit once.
+3. Confirm category/payment requirements without entering card data or confirming a charge.
+4. If payment is required, stop automation for human takeover; if the draft cannot
+   be preserved safely, mark the test blocked.
+5. For a no-payment path only, obtain exact approval and submit once.
 6. Capture confirmation evidence and verify account state.
 7. Test idempotent retry behavior without resubmission.
 
@@ -110,7 +111,8 @@ Deliver an approval-gated Tampa event-business MVP on the existing Hermes Mac1 V
 
 ## Milestone 9: Bounded Schedules
 
-Enable jobs one by one:
+Enable jobs one by one **only after the named CLI command exists and passes its
+live observe gate**. The repository currently ships only `platform-health`:
 
 - `platform-health`
 - `collect-craigslist`

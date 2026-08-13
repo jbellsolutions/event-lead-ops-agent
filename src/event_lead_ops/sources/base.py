@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
 from typing import Any
 
 from ..models import (
@@ -9,7 +8,8 @@ from ..models import (
     ApprovedAction,
     CollectionBatch,
     HealthReport,
-    ResponseRecord,
+    ProposedAction,
+    ResponseBatch,
     SourceRecord,
 )
 
@@ -27,10 +27,10 @@ class SourceAdapter(ABC):
     def normalize(self, raw: Any) -> SourceRecord: ...
 
     @abstractmethod
-    def prepare_action(self, record_id: str, campaign_id: str) -> dict[str, Any]: ...
+    def prepare_action(self, record_id: str, campaign_id: str) -> ProposedAction: ...
 
     @abstractmethod
     def execute_approved_action(self, action: ApprovedAction) -> ActionResult: ...
 
     @abstractmethod
-    def poll_responses(self, cursor: str | None = None) -> Iterable[ResponseRecord]: ...
+    def poll_responses(self, cursor: str | None = None) -> ResponseBatch: ...

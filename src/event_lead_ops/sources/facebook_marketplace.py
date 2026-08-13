@@ -13,7 +13,19 @@ _PRICE_PATTERN = re.compile(r"(?:US\$|\$)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)")
 
 def canonicalize_url(value: str) -> str:
     parts = urlsplit(value)
-    return urlunsplit(("https", "www.facebook.com", parts.path.rstrip("/") + "/", "", ""))
+    host = (parts.hostname or "").lower()
+    if parts.scheme.lower() != "https" or host not in {
+        "facebook.com",
+        "www.facebook.com",
+        "m.facebook.com",
+    }:
+        raise ValueError("Marketplace URL must use HTTPS on facebook.com")
+    match = _ID_PATTERN.fullmatch(parts.path.rstrip("/"))
+    if not match:
+        raise ValueError("Marketplace URL must be an item URL")
+    return urlunsplit(
+        ("https", "www.facebook.com", f"/marketplace/item/{match.group(1)}/", "", "")
+    )
 
 
 def listing_id_from_url(value: str) -> str:
@@ -34,7 +46,11 @@ def parse_price_minor(value: Any) -> int | None:
 
 def normalize_listing(raw: dict[str, Any]) -> SourceRecord:
     url = canonicalize_url(str(raw["url"]))
-    external_id = str(raw.get("id") or listing_id_from_url(url))
+    url_id = listing_id_from_url(url)
+    supplied_id = str(raw.get("id") or url_id)
+    if supplied_id != url_id:
+        raise ValueError("Marketplace listing ID does not match URL")
+    external_id = url_id
     posted_at = raw.get("posted_at")
     if isinstance(posted_at, str):
         posted_at = datetime.fromisoformat(posted_at.replace("Z", "+00:00"))

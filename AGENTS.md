@@ -25,6 +25,7 @@ Implement and deploy a staged event-business lead operation using the existing a
 - Do not claim a platform session works until a live read-only test passes from the intended VPS browser profile.
 - Do not claim that changing IPs is harmless. Record the actual result for each platform/account.
 - No post, listing, message, comment, connection request, purchase, card charge, or account change without an explicit, unexpired approval record during the MVP.
+- No automated payment, card entry, checkout confirmation, or paid-category submission; stop for human takeover or mark the pilot blocked.
 - One approval authorizes one immutable action payload. Editing a draft invalidates the approval.
 - Every external action needs an idempotency key, evidence, timestamp, and outcome.
 - Stop the source immediately on login checkpoints, account warnings, CAPTCHA, rate limits, unexpected payment screens, or material UI changes.
@@ -55,13 +56,27 @@ Follow `docs/implementation-plan.md` in order. Do not skip the read-only pilot a
 
 Default every source to `disabled` or `observe`.
 
-## Required Commands
+## CLI boundary
 
-The project CLI should eventually expose:
+Implemented now:
 
 ```text
 event-lead-ops init-db
 event-lead-ops health [source]
+event-lead-ops status
+event-lead-ops validate-config <kind> <path>
+event-lead-ops approver add ...
+event-lead-ops-browser <source> --profile <path>
+```
+
+There is deliberately no general-purpose approval CLI. The authenticated Hermes
+Mac1 Slack adapter must call the internal `create_approval()` API with the
+provider-issued member ID read from trusted event context; message text or a
+caller-supplied shell flag cannot establish identity.
+
+Planned, not implemented or schedulable yet:
+
+```text
 event-lead-ops collect <source>
 event-lead-ops score
 event-lead-ops draft <campaign>
@@ -71,7 +86,8 @@ event-lead-ops responses poll <source>
 event-lead-ops report
 ```
 
-Until the CLI exists, implement these as callable Python functions and tests rather than inventing fake command output.
+Implement planned commands as callable Python functions and tests before exposing
+or scheduling them; never invent fake command output.
 
 ## Source Adapter Contract
 

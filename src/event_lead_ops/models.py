@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 
@@ -23,6 +26,53 @@ class HealthStatus(StrEnum):
     PAUSED = "paused"
     WAITING_FOR_REAUTH = "waiting_for_reauth"
     ERROR = "error"
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeIdentity:
+    source: str
+    account_alias: str
+    route: str
+    provider: str
+    egress_identity: str
+    proxy_identity: str
+    profile_dir: str
+    browser_major_version: str
+    display_mode: str
+    viewport: str
+    evidence_root: str
+
+    def __post_init__(self) -> None:
+        values = self.as_dict()
+        if any(not value.strip() for value in values.values()):
+            raise ValueError("runtime identity fields must be non-empty")
+        for field_name in ("profile_dir", "evidence_root"):
+            path = Path(values[field_name])
+            if not path.is_absolute():
+                raise ValueError("runtime identity paths must be absolute")
+            object.__setattr__(self, field_name, str(path.resolve()))
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "source": self.source,
+            "account_alias": self.account_alias,
+            "route": self.route,
+            "provider": self.provider,
+            "egress_identity": self.egress_identity,
+            "proxy_identity": self.proxy_identity,
+            "profile_dir": self.profile_dir,
+            "browser_major_version": self.browser_major_version,
+            "display_mode": self.display_mode,
+            "viewport": self.viewport,
+            "evidence_root": self.evidence_root,
+        }
+
+    @property
+    def fingerprint(self) -> str:
+        encoded = json.dumps(
+            self.as_dict(), sort_keys=True, separators=(",", ":")
+        ).encode()
+        return hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +120,8 @@ class ProposedAction:
     idempotency_key: str
     account_alias: str = "default"
     campaign_id: str | None = None
+    attempt: int = 1
+    retry_of: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +149,14 @@ class ResponseRecord:
     body_redacted: str
     received_at: datetime
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseBatch:
+    source: str
+    records: tuple[ResponseRecord, ...]
+    cursor: str | None = None
+    evidence_paths: tuple[str, ...] = ()
 
 
 def utc_now() -> datetime:

@@ -1,156 +1,182 @@
-# Deployment to Hermes Mac1
+# Deployment
 
-This project is designed to be installed into an existing Hermes gateway. Do not create a new Slack app.
+This deploys the **tested control-plane scaffold**. It does not make the unfinished Craigslist/Facebook collectors or writers live.
 
-## Prerequisites
+## Preconditions
 
-On the VPS:
+- Existing Hermes Mac1 VPS and existing Slack app/gateway; do not create another app.
+- Python 3.11 or newer.
+- `git`, a verified Chromium-compatible Linux display/headless route, and systemd user services if the persistent-browser fallback is selected.
+- The five-round council in `browser-execution-council.md` completed for each browser workflow.
+- Owner-approved paths; no cookies, tokens, passwords, payment details, or browser profiles in Git.
 
-- Hermes Agent is installed and `hermes doctor` is healthy.
-- The existing Slack gateway is running.
-- The operator account can write `/home/hermes`.
-- Python 3.11 or newer is available.
-- A headed/persistent browser runtime can be started for authenticated profiles.
-
-Check live commands against the installed Hermes version:
+## 1. Clone and verify
 
 ```bash
-hermes --version
-hermes doctor
-hermes gateway status
-hermes cron status
-hermes skills list
+git clone https://github.com/jbellsolutions/event-lead-ops-agent.git /home/hermes/event-lead-ops
+cd /home/hermes/event-lead-ops
+PYTHON_BIN=python3.11 ./scripts/deploy_preflight.sh
 ```
 
-The official Hermes documentation is authoritative: <https://hermes-agent.nousresearch.com/docs>.
+The preflight installs development dependencies, runs lint/tests/scans, initializes a synthetic database, and prints redacted status.
 
-## 1. Clone and Install
+## 2. Install runtime and browser extra
 
 ```bash
-cd /home/hermes
-git clone https://github.com/jbellsolutions/event-lead-ops-agent.git event-lead-ops
-cd event-lead-ops
-python3.11 -m venv .venv  # or any verified Python >=3.11
+cd /home/hermes/event-lead-ops
+python3.11 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e '.[dev,browser]'
+.venv/bin/python -m pip install -e '.[browser]'
 .venv/bin/python -m playwright install chromium
-.venv/bin/python -m pytest
 ```
 
-If the host uses `uv`, an implementing agent may substitute `uv venv` and `uv pip install`, but it must still run the tests.
-
-## 2. Create Runtime Directories
+## 3. Create owner-only runtime paths
 
 ```bash
-install -d -m 700 \
-  /home/hermes/.local/share/event-lead-ops/secrets \
+install -d -m 0700 \
+  /home/hermes/.config/event-lead-ops \
+  /home/hermes/.local/share/event-lead-ops/state \
   /home/hermes/.local/share/event-lead-ops/browser-profiles/facebook \
   /home/hermes/.local/share/event-lead-ops/browser-profiles/craigslist \
-  /home/hermes/.local/share/event-lead-ops/state \
   /home/hermes/.local/share/event-lead-ops/artifacts \
   /home/hermes/.local/share/event-lead-ops/logs
+install -m 0600 .env.example /home/hermes/.config/event-lead-ops/runtime.env
 ```
 
-Do not store these directories under the Git checkout.
+Edit `runtime.env` locally. It may contain paths, `DISPLAY`, and `EVENT_LEAD_OPS_HEADLESS`; secret values belong in the host secret manager. The application enforces `0700` parent directories and `0600` SQLite files.
 
-## 3. Create Local Configuration
+## 4. Create and validate local configuration
 
 ```bash
 cp config/business.example.yaml config/business.local.yaml
 cp config/platforms.example.yaml config/platforms.local.yaml
 cp config/scoring.example.yaml config/scoring.local.yaml
 cp config/schedules.example.yaml config/schedules.local.yaml
+
+.venv/bin/event-lead-ops validate-config business config/business.local.yaml
+.venv/bin/event-lead-ops validate-config platforms config/platforms.local.yaml
+.venv/bin/event-lead-ops validate-config scoring config/scoring.local.yaml
+.venv/bin/event-lead-ops validate-config schedules config/schedules.local.yaml
 ```
 
-Populate the real business details in the ignored `*.local.yaml` files. Keep both platforms in `observe` mode.
+Validation fails closed on missing required sections, invalid source modes, unknown source names, insecure/non-HTTPS URLs, missing Tampa location identity, invalid cooldowns, and invalid schedule entries. Canonical sources are `craigslist` and `facebook_marketplace`; `facebook` is the only accepted alias for the latter.
 
-Use the host's service environment or secret manager for runtime paths. Never source raw browser cookie values through shell history.
-
-## 4. Initialize State
+## 5. Initialize and inspect SQLite
 
 ```bash
-.venv/bin/event-lead-ops \
-  --db /home/hermes/.local/share/event-lead-ops/state/event-lead-ops.sqlite3 \
-  init-db
-
-.venv/bin/event-lead-ops \
-  --db /home/hermes/.local/share/event-lead-ops/state/event-lead-ops.sqlite3 \
-  status
+export EVENT_LEAD_OPS_DB=/home/hermes/.local/share/event-lead-ops/state/event-lead-ops.sqlite3
+.venv/bin/event-lead-ops --db "$EVENT_LEAD_OPS_DB" init-db
+.venv/bin/event-lead-ops --db "$EVENT_LEAD_OPS_DB" status
 ```
 
-## 5. Install the Hermes Skill
+`status` and `health` deliberately redact health detail and evidence paths.
 
-Install from the public raw URL using the command supported by the current Hermes version:
+## 6. Register approvers locally
+
+Use the authenticated Slack member ID supplied by the existing Hermes Mac1 event, not a display name and not message text:
 
 ```bash
-hermes skills install \
-  https://raw.githubusercontent.com/jbellsolutions/event-lead-ops-agent/main/skills/event-lead-ops/SKILL.md \
-  --name event-lead-ops
+.venv/bin/event-lead-ops --db "$EVENT_LEAD_OPS_DB" approver add \
+  --provider slack \
+  --external-user-id 'U_REPLACE_WITH_REAL_MEMBER_ID' \
+  --operator-alias owner
 ```
 
-Then verify:
+Keep the actual member ID out of Git. The database owns this allowlist. A Slack caller cannot pass an allowlist to the approval function.
+
+## 7. Install the bundled Hermes skill
+
+Install into the active Hermes profile only:
 
 ```bash
-hermes skills list
+install -d -m 0700 /home/hermes/.hermes/skills/event-lead-ops
+install -m 0600 skills/event-lead-ops/SKILL.md \
+  /home/hermes/.hermes/skills/event-lead-ops/SKILL.md
 ```
 
-Start a fresh Slack/Hermes session after skill changes so the skill index reloads.
+Restart or reload the existing Hermes Mac1 gateway using its established service procedure. Do not create a second gateway, bot, or scheduler owner.
 
-## 6. Preserve Single Gateway Ownership
+## 8. Persistent browser fallback
 
-The existing Hermes Mac1 VPS remains the sole Slack gateway and scheduler owner. Verify there is not a second process using the same Slack Socket Mode credentials.
+Super Browser is the orchestration front door. Use this local persistent-Chromium lane only when the five-round council records it as the best viable route for the workflow.
 
-Do not copy Slack credentials into this repo. The project operates through the gateway already installed on the VPS.
+The launcher owns the profile lock for the entire browser lifetime. It is an
+observe/reauth/recovery tool, not an external-write executor:
 
-## 7. Establish Browser Profiles
-
-Follow `session-migration.md`. Recommended order:
-
-1. Craigslist public observe lane (no account session)
-2. Facebook persistent profile read-only certification
-3. Craigslist account persistent profile certification
-4. Draft-only flows
-5. One approved external-write pilot per platform
-
-Browser-login work is credential-bearing. Use a maintenance window and owner-only profile paths.
-
-## 8. Create Bounded Cron Jobs
-
-Use Hermes cron with `workdir=/home/hermes/event-lead-ops` so `AGENTS.md` is injected. Start with health only. Keep all collection schedules disabled until the corresponding live observe gate passes.
-
-A self-contained health-job prompt:
-
-```text
-Operate the event-lead-ops project in read-only mode. Work from /home/hermes/event-lead-ops, load the event-lead-ops skill, run the deterministic status/health command against the configured database, report source state changes to the origin Slack thread, and take no external platform action. Do not schedule another cron job.
+```bash
+EVENT_LEAD_OPS_ROOT=/home/hermes/event-lead-ops \
+FACEBOOK_PROFILE_DIR=/home/hermes/.local/share/event-lead-ops/browser-profiles/facebook \
+./scripts/run_persistent_browser.sh facebook_marketplace
 ```
 
-After certification, add one bounded source job at a time. Never install the entire daily business process as one large prompt.
+For a user service:
 
-## 9. Slack Verification
-
-From the existing Hermes Mac1 Slack channel, ask:
-
-```text
-Load event-lead-ops and report status in read-only mode. Do not post or message anything.
+```bash
+install -d -m 0700 ~/.config/systemd/user
+install -m 0600 deploy/systemd/event-lead-ops-browser@.service \
+  ~/.config/systemd/user/event-lead-ops-browser@.service
+systemctl --user daemon-reload
+systemctl --user start event-lead-ops-browser@facebook_marketplace.service
+systemctl --user status event-lead-ops-browser@facebook_marketplace.service
 ```
 
-The response must match the database and distinguish `unverified`, `healthy`, `blocked_auth`, and `paused` sources.
+The service has `Restart=no`: checkpoints, warnings, crashes, and ambiguous state must pause for review rather than loop. A headed route needs a host-provided `DISPLAY`/desktop service. Setting `EVENT_LEAD_OPS_HEADLESS=true` creates a different route and invalidates prior certification.
 
-## 10. Production Promotion
+## 9. Read-only certification
 
-Promotion is per source and per route:
+From the intended route/profile, record a live read-only health result with redacted evidence. `approved_write` requires:
 
-```text
-disabled -> observe -> draft -> approved_write
+- database source policy set to `approved_write` by trusted local code,
+- database health `healthy`,
+- certification age no more than **24 hours**,
+- exact source and account alias match,
+- exact unexpired approval,
+- no browser/profile/egress/provider/environment change.
+
+Any route, proxy, browser-major-version, headless/display mode, account alias, profile, or provider change invalidates certification.
+
+## 10. Slack approval binding
+
+The existing Hermes Mac1 Slack handler must verify the Slack signature/replay
+window, read the event's authenticated member ID, reload the exact proposal,
+and call `create_approval()` directly inside the trusted adapter process.
+
+Do not add or wrap a general-purpose approval shell command that accepts a
+member ID. Trusted adapter code creates an approval only; it does **not**
+execute a browser action. The live executor remains unfinished and must acquire
+the certified profile lock itself, call the database reservation API, keep the
+same lease through platform interaction, and record terminal evidence before
+releasing it.
+
+## 11. Install only the implemented schedule
+
+`config/schedules.example.yaml` is an operator inventory, not automatic Hermes input. Today, only the redacted health command exists. In a Hermes chat with the scheduler tool, create this exact job payload:
+
+```json
+{
+  "action": "create",
+  "name": "event-lead-ops-health",
+  "schedule": "0 7 * * *",
+  "deliver": "origin",
+  "skills": ["event-lead-ops"],
+  "enabled_toolsets": ["terminal"],
+  "workdir": "/home/hermes/event-lead-ops",
+  "prompt": "Run .venv/bin/event-lead-ops --db /home/hermes/.local/share/event-lead-ops/state/event-lead-ops.sqlite3 health. Return the exact redacted JSON summary and alert only on a health-state transition. Do not navigate, collect, post, reply, approve, execute, pay, or schedule another job."
+}
 ```
 
-A browser version, egress, proxy, or profile migration change invalidates the previous certification and returns the source to `observe`.
+List jobs and record the returned job ID. Do **not** schedule `collect`, `score`, `report`, or `responses poll`: those CLI commands are not implemented yet. Do not pin a model/provider unless the operator explicitly requires it; the health job needs no browser credentials or environment injection.
 
-## Rollback
+## 12. Deployment acceptance
 
-- Pause the source cron jobs.
-- Set source mode to `disabled`.
-- Stop the source browser process without deleting its profile.
-- Preserve the database and evidence for reconciliation.
-- Revert the Git checkout to the last verified release.
-- Restart the existing gateway only if gateway configuration changed.
+Deployment is not complete until all applicable checks pass:
+
+- clean preflight and wheel install,
+- local configs validate,
+- private path modes verified,
+- existing Hermes Mac1 responds through the existing Slack app,
+- authenticated owner approval works and non-owner approval fails,
+- one browser process owns each profile and a second process is rejected,
+- current live read-only certification exists for the exact route,
+- scheduled health job runs from the VPS with the Mac off,
+- unfinished collection/write commands are not scheduled or represented as live.

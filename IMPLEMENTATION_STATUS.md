@@ -14,10 +14,20 @@ This document prevents handoff ambiguity. Update it as executable milestones lan
 - Canonical action-payload hashing
 - Proposed-action and approval persistence
 - Single-use, expiring approval checks
-- Database-backed source-health gate
-- Idempotent action reservation and terminal audit state
+- Database-owned approver authorization and immutable-proposal approval API
+- Database-backed source policy plus exact runtime-fingerprint certification gate,
+  including separate provider, egress, proxy, browser-major-version, display,
+  viewport, account, and profile identities
+- Campaign-aware idempotency, database-owned cooldown, evidenced no-submit retry,
+  stale reconciliation, and terminal audit
+- Same-profile-lock-lease execution, a durable pre-submit marker, and owner-only
+  action-bound JSON evidence manifests with persisted SHA-256
 - Fail-closed handling for edited payloads and unhealthy sources
-- Example business/platform/scoring/schedule configuration
+- Strict Craigslist/Facebook URL normalization and source aliasing
+- Validated business/platform/scoring/schedule configuration
+- Owner-only SQLite/runtime permissions and redacted status output
+- Persistent browser launcher, cross-process profile lock, and systemd template
+- Current-tree/full-history secret scanner with decodable-text coverage
 - Hermes skill and existing-gateway deployment instructions
 - Repository secret/forbidden-file and relative-link scanner
 - CI, lint, unit tests, CLI smoke test, and isolated wheel-install test
@@ -28,7 +38,6 @@ This document prevents handoff ambiguity. Update it as executable milestones lan
 - Craigslist page fetch/pagination/browser extraction
 - Facebook persistent-browser lifecycle and selectors
 - Source health navigations and screenshot capture
-- Browser process/profile locking
 - Campaign template rendering and media validation
 - Slack Block Kit or equivalent approval UI
 - Hermes command-to-CLI routing
@@ -38,7 +47,6 @@ This document prevents handoff ambiguity. Update it as executable milestones lan
 - Facebook listing-thread response collector
 - Runtime job locking, source cursors, and dead-letter worker
 - Google Sheets or here.now publishing
-- VPS systemd/process supervision for browser workers
 - Installed Hermes cron jobs
 
 ## Live Verification Not Yet Claimed

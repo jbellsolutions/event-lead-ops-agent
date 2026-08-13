@@ -65,12 +65,18 @@ Not part of the initial event MVP. Prefer its documented authenticated API/token
    - One-time interactive login in the VPS profile (preferred), or
    - Encrypted transfer of a browser storage-state export through SSH.
 4. Set `0700` on profile directories and `0600` on secret files.
-5. Start one browser process with the profile.
+5. Start one browser process with `scripts/run_persistent_browser.sh` or
+   `event-lead-ops-browser`. It holds `.event-lead-ops.lock` in the profile for
+   the entire browser lifetime; a second process fails immediately. Never launch
+   raw Chromium against these profile directories.
 6. Run the platform's read-only acceptance gate.
 7. Save a redacted health record and screenshot outside Git.
 8. Mark the certification with route, egress class, browser version, and date.
-9. Enable `observe` mode only.
-10. Re-run certification after any proxy, egress, browser-major-version, or profile migration change.
+9. Set `certification_expires_at` no later than 24 hours after certification.
+   Any route, egress, proxy, browser-major-version, profile, account alias,
+   provider, or headed/headless-mode change invalidates it immediately.
+10. Enable `observe` mode only.
+11. Re-run certification after any invalidating environment change.
 
 ## Egress Choices
 

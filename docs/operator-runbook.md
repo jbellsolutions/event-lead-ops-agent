@@ -4,7 +4,8 @@
 
 1. Ask Hermes Mac1 for `status event lead ops`.
 2. Review source health and certification age.
-3. Run or confirm Craigslist and Facebook `observe` collection.
+3. Run Craigslist/Facebook `observe` collection only after those collector CLI
+   paths exist and have a current live certification; they are not shipped yet.
 4. Review qualified opportunities.
 5. Generate platform-specific drafts.
 6. Approve only exact drafts intended for publication.
@@ -21,7 +22,8 @@
 
 - Reconcile database counts and successful actions.
 - Review failed/ambiguous actions.
-- Confirm no pending payment boundary.
+- Confirm no pending payment boundary. Automation never enters card data or
+  confirms a charge; a payment screen requires human takeover or blocks the pilot.
 - Produce the daily Slack report.
 
 ## Reauthentication

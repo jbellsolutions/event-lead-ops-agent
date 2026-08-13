@@ -35,10 +35,21 @@ def payload_hash(payload: dict[str, Any]) -> str:
 def make_idempotency_key(
     source: str,
     account_alias: str,
+    campaign_id: str | None,
     action_type: str,
     payload: dict[str, Any],
+    attempt: int = 1,
 ) -> str:
-    material = "\n".join((source, account_alias, action_type, payload_hash(payload)))
+    material = "\n".join(
+        (
+            source,
+            account_alias,
+            campaign_id or "no-campaign",
+            action_type,
+            payload_hash(payload),
+            str(attempt),
+        )
+    )
     return hashlib.sha256(material.encode()).hexdigest()
 
 

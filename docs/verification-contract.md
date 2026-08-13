@@ -12,6 +12,19 @@ No component is “working” without evidence at the relevant layer.
 - Re-importing fixtures is idempotent.
 - Approval payload edits invalidate approval.
 - Expired/consumed approvals fail closed.
+- Unknown Slack member IDs cannot approve.
+- Source mode/health/certification are loaded from SQLite, not caller arguments.
+- Current runtime fingerprint and same-process profile-lock lease match the
+  certified reservation through terminal recording.
+- Certification older than 24 hours fails closed.
+- A second browser process cannot own the same profile.
+- Successful writes require platform ID, HTTPS URL, and an owner-only
+  action-bound JSON evidence manifest inside the certified evidence root; its
+  hash is persisted and rechecked before any retry.
+- The executor records a durable submission marker immediately before the first
+  platform-side submit. Post-marker uncertainty can only reconcile, never retry.
+- Stale/ambiguous executions require reconciliation; only evidenced
+  `confirmed_no_submit` retries get one new attempt after persisted cooldown.
 - `observe` and `draft` modes reject external execution.
 - Secret and forbidden-file scan passes.
 - Relative Markdown links resolve.
@@ -36,6 +49,7 @@ No component is “working” without evidence at the relevant layer.
 - Preserve redacted evidence.
 - Confirm no listing, message, reaction, account, or payment mutation.
 - Stop on checkpoint, CAPTCHA, warning, or uncertain account state.
+- Stop before payment/card entry/checkout; human takeover occurs outside automation.
 
 ## External-Write Pilot
 

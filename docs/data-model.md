@@ -1,8 +1,8 @@
 # Data Model
 
-The canonical SQLite schema is in `migrations/001_initial.sql`. The wheel build
-includes that directory as `event_lead_ops/migrations/`, and `db.py` selects
-the packaged copy after installation.
+The canonical SQLite migrations are in `migrations/`. The wheel force-includes
+them as `event_lead_ops/migrations/`, and `db.py` selects the packaged copy after
+installation. Migration history is checked before each atomic migration.
 
 ## Main Entities
 
@@ -21,6 +21,15 @@ Immutable drafts for external actions. The canonical JSON payload is hashed.
 ### `approvals`
 
 Single-use, expiring authorization tied to the proposed-action hash.
+
+### `authorized_approvers`
+
+Database-owned external identities allowed to approve (for example, an
+authenticated Slack member ID mapped to a redacted operator alias).
+
+### `source_policies`
+
+Authoritative source/account mode; callers cannot assert write mode.
 
 ### `actions`
 
@@ -58,11 +67,18 @@ Store artifact paths and hashes, not sensitive artifact bodies, in database rows
 ### Proposed action
 
 ```text
-draft -> pending_approval -> approved -> executing -> succeeded
-                     |              |          |
-                     v              v          v
-                  rejected       expired     failed/needs_reconciliation
+draft -> pending_approval -> approved -> executing -> [submission_started_at] -> succeeded
+                     |              |          |                 |
+                     v              v          v                 v
+                  rejected       expired   evidenced failed   needs_reconciliation
+                                           (pre-submit only)  (post-submit uncertainty)
 ```
+
+`submission_started_at` is a durable boundary on the action row, not a separate
+status value. The writer records it immediately before the first platform-side
+submit. Terminal evidence is an owner-only JSON manifest bound to the exact
+source, account, proposal, action, runtime, outcome, and result identity; SQLite
+stores its SHA-256.
 
 ### Source health
 

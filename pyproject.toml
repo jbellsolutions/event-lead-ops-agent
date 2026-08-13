@@ -25,6 +25,8 @@ browser = [
 
 [project.scripts]
 event-lead-ops = "event_lead_ops.cli:main"
+event-lead-ops-browser = "event_lead_ops.browser_runtime:main"
+event-lead-ops-profile-lock = "event_lead_ops.profile_lock:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/event_lead_ops"]

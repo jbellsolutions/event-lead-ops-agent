@@ -19,7 +19,7 @@ This is an **implementation-ready handoff repository**, not a claim that product
 - Architecture and deployment decisions
 - A platform risk and session-migration plan
 - A staged implementation backlog
-- A normalized data model and SQLite migration
+- A normalized data model and immutable, upgrade-tested SQLite migrations
 - Deterministic policy, dedupe, queue, and source-contract code
 - Event-business example configuration
 - A Hermes skill and project instructions for another agent
@@ -92,9 +92,11 @@ Facebook Marketplace:
 2. Validate category, duplicate cooldown, prohibited claims, image requirements, price, and location.
 3. Send exact drafts to Slack.
 4. Require an approval ID before publishing.
-5. Capture the resulting URL, timestamp, screenshot, and platform confirmation.
-6. Poll only responses tied to the operator's listings.
-7. Draft replies; require approval until a narrow response template is explicitly certified.
+5. Durably mark the submit boundary immediately before the first platform write.
+6. Capture an action-bound evidence manifest, resulting URL, timestamp, screenshot,
+   and platform confirmation.
+7. Poll only responses tied to the operator's listings.
+8. Draft replies; require approval until a narrow response template is explicitly certified.
 
 ## Quick Start for an Implementing Agent
 
@@ -147,7 +149,7 @@ show event opportunities
 prepare this week's craigslist ad drafts
 prepare a marketplace listing draft for the approved package
 show pending approvals
-approve ACTION_ID
+approve PROPOSED_ACTION_ID
 pause facebook
 browser health
 report today
@@ -179,7 +181,9 @@ Slack is the operator interface, not the canonical database.
 │   ├── slack-operations.md
 │   └── verification-contract.md
 ├── migrations/
-│   └── 001_initial.sql
+│   ├── 001_initial.sql
+│   ├── 002_runtime_policy_and_retries.sql
+│   └── 003_runtime_binding_and_cooldowns.sql
 ├── skills/
 │   └── event-lead-ops/SKILL.md
 ├── templates/
@@ -199,16 +203,18 @@ Slack is the operator interface, not the canonical database.
 
 ## Implementation Boundaries
 
-### Included
+### Implemented scaffold
 
-- Public Craigslist collection
-- Authenticated Facebook Marketplace read pilot
-- Draft generation
-- Approval and idempotency controls
-- Persistent-profile orchestration design
-- Inquiry monitoring design
+- Craigslist/Facebook listing normalization helpers (not live collectors)
+- Typed source adapter and response-batch contracts
+- Approval, authorization, certification, cooldown, retry, and idempotency controls
+- Persistent-profile lock/launcher and systemd template
+- Config validation and redacted health/status CLI
 - Cross-source normalization and dedupe
 - Slack/VPS deployment plan
+
+Live collection, draft rendering, Slack UI routing, platform posting, and inquiry
+monitoring remain implementation milestones; see `IMPLEMENTATION_STATUS.md`.
 
 ### Not included or enabled by default
 

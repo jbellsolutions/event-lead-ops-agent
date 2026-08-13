@@ -1,0 +1,20 @@
+[Unit]
+Description=Event Lead Ops persistent browser (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hermes/event-lead-ops
+EnvironmentFile=/home/hermes/.config/event-lead-ops/runtime.env
+ExecStart=/home/hermes/event-lead-ops/scripts/run_persistent_browser.sh %i
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/hermes/.local/share/event-lead-ops
+
+[Install]
+WantedBy=default.target

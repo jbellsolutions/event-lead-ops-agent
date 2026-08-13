@@ -1,39 +1,32 @@
-# Install schedules only after the corresponding verification gate passes.
+# This file is an operator inventory, not an automatic scheduler input.
+# Only commands marked implemented may be installed.
 timezone: "America/New_York"
 
 jobs:
   - id: "platform-health"
+    implementation: "implemented"
     enabled: true
     schedule: "0 7 * * *"
     mode: "observe"
-    command: "event-lead-ops health"
+    command: >-
+      .venv/bin/event-lead-ops --db
+      /home/hermes/.local/share/event-lead-ops/state/event-lead-ops.sqlite3 health
 
+planned_jobs:
+  # Do not schedule these names until the corresponding CLI command exists,
+  # its tests pass, and its live observe gate is recorded.
   - id: "collect-craigslist"
     enabled: false
-    schedule: "15 7 * * *"
-    mode: "observe"
-    command: "event-lead-ops collect craigslist"
-
-  - id: "collect-facebook"
+    blocked_on: "Craigslist collector CLI and live observe certification"
+  - id: "collect-facebook-marketplace"
     enabled: false
-    schedule: "45 7 * * *"
-    mode: "observe"
-    command: "event-lead-ops collect facebook_marketplace"
-
+    blocked_on: "Facebook collector CLI and live observe certification"
   - id: "score-and-report"
     enabled: false
-    schedule: "30 8 * * *"
-    mode: "observe"
-    command: "event-lead-ops score && event-lead-ops report"
-
+    blocked_on: "Scoring/report CLI"
   - id: "poll-responses"
     enabled: false
-    schedule: "*/30 8-20 * * *"
-    mode: "observe"
-    command: "event-lead-ops responses poll all"
-
+    blocked_on: "Response collector CLI and approval-gated draft path"
   - id: "daily-brief"
     enabled: false
-    schedule: "0 18 * * *"
-    mode: "observe"
-    command: "event-lead-ops report --deliver slack"
+    blocked_on: "Reporting CLI and verified Slack delivery"

@@ -21,8 +21,31 @@ jobs:
       - run: python -m ruff check .
       - run: python -m pytest
       - run: python scripts/verify_repo.py
+      - run: bash -n scripts/*.sh
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path("deploy/systemd/event-lead-ops-browser@.service").read_text()
+          source = source.replace(
+              "WorkingDirectory=/home/hermes/event-lead-ops",
+              "WorkingDirectory=/tmp",
+          ).replace(
+              "EnvironmentFile=/home/hermes/.config/event-lead-ops/runtime.env",
+              "EnvironmentFile=-/dev/null",
+          ).replace(
+              "ExecStart=/home/hermes/event-lead-ops/scripts/run_persistent_browser.sh %i",
+              "ExecStart=/bin/true",
+          ).replace(
+              "ReadWritePaths=/home/hermes/.local/share/event-lead-ops",
+              "ReadWritePaths=/tmp",
+          )
+          Path("/tmp/event-lead-ops-browser@.service").write_text(source)
+          PY
+          systemd-analyze verify /tmp/event-lead-ops-browser@.service
+      - run: PYTHON_BIN=python ./scripts/deploy_preflight.sh
       - run: python -m pip wheel --no-deps --wheel-dir dist .
       - run: |
           python -m venv /tmp/event-lead-ops-wheel-test
           /tmp/event-lead-ops-wheel-test/bin/pip install dist/*.whl
           /tmp/event-lead-ops-wheel-test/bin/event-lead-ops --db /tmp/wheel-test.sqlite3 init-db
+          /tmp/event-lead-ops-wheel-test/bin/event-lead-ops --db /tmp/wheel-test.sqlite3 status

@@ -87,4 +87,11 @@ Store a redacted record outside Git:
 }
 ```
 
-A browser-major-version, egress, proxy, profile, or provider change invalidates external-write certification.
+A certification is current for at most **24 hours**. A browser-major-version,
+egress, proxy, profile, account alias, provider, or headed/headless display-mode
+change invalidates it immediately. Store `certification_expires_at` in SQLite;
+do not infer readiness from a browser process merely being alive.
+
+The canonical runtime fingerprint stores egress and proxy identity as separate,
+non-empty fields; `proxy_identity: none` is explicit when no proxy is used. A
+route label alone is not sufficient certification evidence.

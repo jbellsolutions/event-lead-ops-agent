@@ -27,7 +27,13 @@ $EVENT_LEAD_OPS_RUNTIME/browser-profiles/facebook/
 $EVENT_LEAD_OPS_RUNTIME/browser-profiles/craigslist/
 ```
 
-One worker owns a profile at a time. A file/process lock prevents two Chromium processes from opening the same profile.
+One worker owns a profile at a time. `event-lead-ops-browser` holds an exclusive
+`.event-lead-ops.lock` for the process lifetime; a second process fails closed.
+That standalone launcher is for observe, migration, reauthentication, and
+recovery—not external writes. A future write executor must launch/use the
+browser itself while holding a unique in-process lock lease from reservation
+through terminal evidence recording. Raw browser launches against these
+directories are prohibited.
 
 ### Optional Mac bridge
 
@@ -73,13 +79,17 @@ Draft generator
   -> payload hash
   -> Slack approval request
   -> human approval
-  -> approval validation and execution lock
+  -> approval validation, exact runtime certification, and profile-lock lease
   -> browser action
   -> confirmation evidence
   -> ActionResult and audit record
 ```
 
-A retry checks the idempotency key before touching the platform.
+A retry checks database-owned state before touching the platform. The executor
+durably marks submission immediately before the first platform-side submit.
+Stale or uncertain post-marker actions move to `needs_reconciliation`. Only a
+pre-marker, action-bound, hash-verified `confirmed_no_submit` may create one
+linked attempt after database-owned cooldown; that attempt requires a new approval.
 
 ## Browser Routing
 

@@ -1,80 +1,96 @@
-# Safety and Approval Model
+# Safety and Approvals
 
-## Action Classes
+## Absolute pilot boundaries
 
-| Class | Examples | Initial policy |
-|---|---|---|
-| Read-only | Health, search, collect, normalize, score | Allowed in `observe` after certification |
-| Draft | Generate ad, listing, or reply text | Allowed in `draft`; no platform mutation |
-| External write | Post ad/listing, send reply, edit listing | Exact Slack approval required |
-| Credential-bearing | Login, cookie/profile migration, proxy setup | Operator-approved maintenance window |
-| Payment | Card charge, paid category, renewal fee | Per-action approval at the payment boundary |
-| Destructive | Delete listing, revoke account, purge evidence | Explicit approval and separate audit |
+During the initial pilot:
 
-## Approval Invariants
+- No post, listing, reply, message, comment, account mutation, or external write without one exact unexpired approval.
+- **No automated payment, card entry, billing agreement, purchase, checkout confirmation, or paid-category submission.**
+- A payment screen pauses the source and requires human takeover outside the automation. If the platform cannot preserve an approved draft without automated payment, that test is blocked—not partially automated.
+- CAPTCHA, checkpoint, warning, rate limit, unexpected UI, or uncertain outcome fails closed.
 
-An approval contains:
+## Immutable approval model
 
-- Approval ID
-- Proposed action ID
-- SHA-256 hash of the canonical action payload
-- Source/account alias
-- Approver identity
-- Creation and expiration time
-- Single-use state
+1. Store a canonical proposed action in SQLite.
+2. Hash canonical JSON for the payload.
+3. Show the exact stored payload and hash in Slack.
+4. Authenticate the Slack event user.
+5. Require that `(provider, external_user_id)` is active in SQLite's approver allowlist.
+6. Create a single-use approval tied to the exact proposed-action ID and payload hash.
+7. Expire approval after no more than 30 minutes.
+8. Reload proposal/approval from SQLite at execution; never trust caller-constructed metadata.
+9. Consume approval atomically with the execution reservation.
 
-Validation fails when:
+A changed payload is a new proposal and requires new approval.
 
-- The payload changes
-- The approval expires
-- The approval was already consumed
-- The source is paused or unhealthy
-- The mode is not `approved_write`
-- A duplicate successful action already exists
+## Authoritative write gates
 
-## Default Denials
+An external action may begin only when SQLite shows all of the following for the same canonical source and account alias:
 
-The initial MVP denies:
+- source policy is `approved_write`,
+- source health is `healthy`,
+- certification is no older than **24 hours**,
+- approval is active, unexpired, unused, and bound to the proposal,
+- idempotency key has no active/successful execution,
+- campaign cooldown permits the action,
+- the executing process owns the exact certified profile lock lease,
+- the current canonical runtime fingerprint matches certification,
+- explicit egress and proxy identities match certification,
+- no payment boundary is present.
 
-- Seller/prospect outreach discovered through scraping
-- Automatic Facebook replies
-- Automatic Craigslist replies
-- Multiple-account operation
-- Account creation
-- CAPTCHA or checkpoint bypass
-- Proxy rotation intended to evade limits
-- Unreviewed pricing or availability claims
-- Card use without immediate approval
-- Cross-posting identical content without platform-specific validation
+Callers cannot assert mode, health, allowlisted approvers, or certification freshness.
 
-## Pause Conditions
+## Idempotency and retries
 
-Pause a source immediately on:
+The key includes canonical source, account alias, campaign identity, action type, attempt, and canonical payload.
 
-- CAPTCHA
-- Login checkpoint
-- Account warning
-- Rate-limit response or posting rejection
-- Unexpected payment screen
-- Selector contract failure
-- Material page-layout change
-- Duplicate-action uncertainty
-- Missing confirmation evidence after a possible submit
+- Identical proposal creation returns the persisted proposal.
+- Two simultaneous reservations resolve to one executor and one harmless no-op.
+- A stale `executing` action is marked `needs_reconciliation` after the configured timeout.
+- `needs_reconciliation` is never automatically retried.
+- `failed` is accepted only before the durable submission marker and only as an
+  evidenced `confirmed_no_submit`. The executor must call
+  `mark_action_submitting()` immediately before the first platform-side submit;
+  after that point, any uncertain result is `needs_reconciliation`.
+- A confirmed no-submit may be retried only after the database-owned campaign
+  cooldown by creating one linked `retry_of` attempt and obtaining a new approval.
+- A `succeeded` action cannot be retried.
 
-An ambiguous submit is not retried automatically. It enters `needs_reconciliation` until the platform state is checked.
+## Campaign cooldown
 
-## Response Policy
+Listing publication/repost proposals require a persisted campaign ID. The
+database-owned campaign row supplies the positive cooldown; callers cannot
+lower it. The database blocks retry proposals and fresh payload variants during
+the cooldown window. Exact proposal readback remains idempotent.
 
-Initial responses are draft-only. The system may classify an inquiry and produce a draft, but a person approves it.
+## Evidence-required success
 
-A future template-reply mode can be certified only for narrow acknowledgments that:
+A successful external action must record:
 
-- Make no pricing, availability, contract, refund, or service commitments
-- Clearly identify the business
-- Provide a truthful next step
-- Stop after one acknowledgment
-- Escalate hot or unusual replies
+- platform external ID,
+- HTTPS platform URL,
+- owner-only regular JSON evidence manifest inside the certified runtime
+  evidence root and outside Git, bound to source/account/proposal/action/runtime,
+  outcome, platform ID, and platform URL,
+- timestamp and terminal state.
 
-## Audit Requirements
+SQLite stores the evidence SHA-256. Retry creation rechecks it and fails if the
+manifest changed after terminal recording. Symlinks and group/world-readable
+artifacts are rejected.
 
-Every decision records who/what authorized it, the exact payload hash, the platform result, evidence, and errors. Logs contain redacted aliases rather than secret values.
+If submission may have occurred but confirmation is missing, record `needs_reconciliation`, not `succeeded` or `failed`.
+
+## Browser route safety
+
+- Run the five-round Super Browser council before each new workflow or route change.
+- Use strict HTTPS allowlists and listing-path validation.
+- Do not navigate normalized records with arbitrary schemes/hosts/paths.
+- One process owns each persistent profile through the shipped profile lock.
+- A write reservation snapshots a unique lock lease and runtime fingerprint;
+  terminal recording requires the same still-held lease and fingerprint.
+- Route, egress, profile, account alias, provider, browser-major-version, or display/headless changes invalidate certification.
+- Do not rotate identities/proxies to evade enforcement.
+
+## Audit and privacy
+
+Store IDs, hashes, states, timestamps, redacted summaries, and runtime evidence paths. Do not put cookies, tokens, account/member identities, raw private messages, payment data, proxy credentials, or browser profiles in Git, Slack reports, or public artifacts.

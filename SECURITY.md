@@ -38,6 +38,7 @@ Do not open a public issue containing credentials, private account details, or c
 
 - Read-only browser health tests precede external writes.
 - CAPTCHA, account checkpoints, rate limits, platform warnings, or unexpected payment screens fail closed.
+- Automation never enters card data, confirms checkout, or submits a paid category; payment requires human takeover outside the automation.
 - A Slack approval is scoped to the exact hash of one action payload and expires.
 - External actions are idempotent and auditable.
 - Proxy or browser-profile changes require a new read-only certification.
