@@ -1,0 +1,39 @@
+# Install schedules only after the corresponding verification gate passes.
+timezone: "America/New_York"
+
+jobs:
+  - id: "platform-health"
+    enabled: true
+    schedule: "0 7 * * *"
+    mode: "observe"
+    command: "event-lead-ops health"
+
+  - id: "collect-craigslist"
+    enabled: false
+    schedule: "15 7 * * *"
+    mode: "observe"
+    command: "event-lead-ops collect craigslist"
+
+  - id: "collect-facebook"
+    enabled: false
+    schedule: "45 7 * * *"
+    mode: "observe"
+    command: "event-lead-ops collect facebook_marketplace"
+
+  - id: "score-and-report"
+    enabled: false
+    schedule: "30 8 * * *"
+    mode: "observe"
+    command: "event-lead-ops score && event-lead-ops report"
+
+  - id: "poll-responses"
+    enabled: false
+    schedule: "*/30 8-20 * * *"
+    mode: "observe"
+    command: "event-lead-ops responses poll all"
+
+  - id: "daily-brief"
+    enabled: false
+    schedule: "0 18 * * *"
+    mode: "observe"
+    command: "event-lead-ops report --deliver slack"

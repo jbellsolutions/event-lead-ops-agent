@@ -1,0 +1,25 @@
+weights:
+  explicit_event_intent: 30
+  recency: 15
+  service_area_fit: 15
+  offer_fit: 15
+  budget_or_price_signal: 10
+  contactability: 5
+  cross_source_match: 5
+  urgency: 5
+
+thresholds:
+  hot: 75
+  qualified: 55
+  review: 35
+  archive_below: 35
+
+recency_days:
+  maximum: 30
+  full_score_through: 3
+
+rules:
+  require_source_url: true
+  require_score_explanation: true
+  never_auto_contact_discovered_seller: true
+  fuzzy_identity_matches_require_review: true

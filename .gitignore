@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Local configuration
+config/*.local.yaml
+config/*.local.yml
+.env
+.env.*
+!.env.example
+
+# Runtime state and private data
+*.db
+*.sqlite
+*.sqlite3
+state/
+data/
+exports/
+artifacts/
+logs/
+secrets/
+browser-profiles/
+profiles/
+
+# Credentials and browser sessions
+*cookies*.json
+*cookie*.sqlite
+auth.json
+credentials*.json
+storage-state*.json
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/

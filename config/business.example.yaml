@@ -1,0 +1,83 @@
+# Replace placeholders only in config/business.local.yaml, which is ignored by Git.
+business:
+  name: "Example Tampa Event Company"
+  market: "Tampa Bay, Florida"
+  timezone: "America/New_York"
+  website: "https://example.com"
+  booking_url: "https://example.com/book"
+  reply_phone: "+1-555-010-0000"
+  reply_email: "events@example.com"
+
+service_area:
+  center: "Tampa, FL"
+  radius_miles: 45
+  include:
+    - Tampa
+    - St. Petersburg
+    - Clearwater
+    - Brandon
+    - Riverview
+    - Wesley Chapel
+  exclude: []
+
+offers:
+  - id: "event-package-core"
+    name: "Core Event Package"
+    status: "draft"
+    summary: "Replace with the actual event service and deliverables."
+    starting_price: 0
+    currency: "USD"
+    event_types:
+      - wedding
+      - birthday
+      - corporate-event
+      - community-event
+    images:
+      - "runtime-only/path/to/approved-image-1.jpg"
+    claims:
+      allowed:
+        - "Locally available in the Tampa Bay area"
+      prohibited:
+        - "guaranteed results"
+        - "best in Tampa"
+        - "limited availability" # unless actually true and reviewed
+
+lead_intent:
+  positive_keywords:
+    - wedding
+    - birthday party
+    - corporate event
+    - company party
+    - venue
+    - event rental
+    - party rental
+    - entertainment
+    - event staffing
+    - event vendor
+    - festival
+    - grand opening
+    - fundraiser
+    - school event
+  negative_keywords:
+    - job wanted
+    - employment wanted
+    - ticket resale
+    - used decor for sale
+    - wholesale lot
+
+response_policy:
+  initial_mode: "draft_only"
+  hot_lead_keywords:
+    - this weekend
+    - available today
+    - need a quote
+    - ready to book
+    - deposit
+    - call me
+  escalation_keywords:
+    - refund
+    - contract
+    - lawsuit
+    - emergency
+    - chargeback
+    - guarantee

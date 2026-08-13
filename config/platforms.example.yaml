@@ -1,0 +1,83 @@
+defaults:
+  mode: "observe"
+  external_writes_require_approval: true
+  approval_ttl_minutes: 30
+  pause_on:
+    - captcha
+    - login_checkpoint
+    - account_warning
+    - rate_limit
+    - payment_screen
+    - selector_contract_failure
+
+craigslist:
+  enabled: true
+  mode: "observe"
+  base_url: "https://tampa.craigslist.org"
+  public_collection:
+    enabled: true
+    searches:
+      - id: "event-services"
+        category: "evs"
+        query: "event"
+      - id: "creative-gigs"
+        category: "cwg"
+        query: "event OR wedding OR party"
+      - id: "event-gigs"
+        category: "evg"
+        query: "event OR wedding OR party"
+      - id: "small-business-event-needs"
+        category: "biz"
+        query: "event OR grand opening OR festival"
+    maximum_pages_per_run: 5
+    minimum_delay_seconds: 4
+  account:
+    persistent_profile_env: "CRAIGSLIST_PROFILE_DIR"
+    posting_enabled: false
+    card_use_enabled: false
+  posting:
+    maximum_approved_posts_per_day: 1
+    duplicate_cooldown_days: 14
+    require_confirmation_artifact: true
+  responses:
+    polling_enabled: false
+    minimum_poll_interval_minutes: 30
+    automatic_replies_enabled: false
+
+facebook_marketplace:
+  enabled: true
+  mode: "observe"
+  base_url: "https://www.facebook.com/marketplace"
+  account:
+    persistent_profile_env: "FACEBOOK_PROFILE_DIR"
+    posting_enabled: false
+  collection:
+    location: "Tampa, Florida"
+    radius_miles: 40
+    searches:
+      - "event services"
+      - "party rentals"
+      - "wedding services"
+      - "event decor"
+      - "event entertainment"
+    maximum_scrolls_per_search: 4
+    minimum_delay_seconds: 8
+  posting:
+    maximum_approved_listings_per_day: 1
+    duplicate_cooldown_days: 14
+    require_confirmation_artifact: true
+  responses:
+    polling_enabled: false
+    minimum_poll_interval_minutes: 30
+    automatic_replies_enabled: false
+
+future_sources:
+  skool:
+    enabled: false
+    mode: "disabled"
+  linkedin:
+    enabled: false
+    mode: "disabled"
+  referralnova:
+    enabled: false
+    mode: "disabled"

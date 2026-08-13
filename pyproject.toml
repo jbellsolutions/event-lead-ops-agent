@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "event-lead-ops"
+version = "0.1.0"
+description = "Approval-gated event-business lead operations for Craigslist and Facebook Marketplace"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Justin Bellware" }]
+dependencies = [
+  "PyYAML>=6.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.9",
+]
+browser = [
+  "playwright>=1.50",
+]
+
+[project.scripts]
+event-lead-ops = "event_lead_ops.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/event_lead_ops"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "event_lead_ops/migrations"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
