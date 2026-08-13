@@ -322,9 +322,86 @@ def test_execution_reservation_uses_immutable_database_payload_snapshot(db):
             should_execute = True
             payload = {"price": "attacker-controlled"}
 
+        class ReservationSubclass(ExecutionReservation):
+            pass
+
+        class HostileString(str):
+            def __eq__(self, other):
+                return True
+
+        hostile_string_claims = tuple(
+            ExecutionReservation(
+                action_id=(
+                    HostileString(reservation.action_id)
+                    if field == "action_id"
+                    else reservation.action_id
+                ),
+                payload_json=(
+                    HostileString(reservation.payload_json)
+                    if field == "payload_json"
+                    else reservation.payload_json
+                ),
+                payload_hash=(
+                    HostileString(reservation.payload_hash)
+                    if field == "payload_hash"
+                    else reservation.payload_hash
+                ),
+                execution_token=(
+                    HostileString(reservation.execution_token)
+                    if field == "execution_token"
+                    else reservation.execution_token
+                ),
+            )
+            for field in (
+                "action_id",
+                "payload_json",
+                "payload_hash",
+                "execution_token",
+            )
+        )
+        forged_claims = (
+            HostileReservation(),
+            ReservationSubclass(
+                action_id=reservation.action_id,
+                payload_json=reservation.payload_json,
+                payload_hash=reservation.payload_hash,
+                execution_token=reservation.execution_token,
+            ),
+            *hostile_string_claims,
+        )
+        for forged in forged_claims:
+            with pytest.raises(TypeError, match="exact|plain built-in"):
+                mark_action_submitting(
+                    db,
+                    forged,
+                    runtime=runtime,
+                    profile_lock=lock,
+                )
+            assert db.execute(
+                "SELECT execution_token_hash FROM actions WHERE id=?",
+                (reservation.action_id,),
+            ).fetchone()[0] is not None
+
+        missing_token = ExecutionReservation(
+            action_id=reservation.action_id,
+            payload_json=reservation.payload_json,
+            payload_hash=reservation.payload_hash,
+        )
+        with pytest.raises(RuntimeError, match="execution claim"):
+            mark_action_submitting(
+                db,
+                missing_token,
+                runtime=runtime,
+                profile_lock=lock,
+            )
+        assert db.execute(
+            "SELECT execution_token_hash FROM actions WHERE id=?",
+            (reservation.action_id,),
+        ).fetchone()[0] is not None
+
         submitted_payload = mark_action_submitting(
             db,
-            HostileReservation(),
+            reservation,
             runtime=runtime,
             profile_lock=lock,
         )

@@ -900,6 +900,18 @@ def mark_action_submitting(
     profile_lock: ProfileLock,
 ) -> Mapping[str, Any]:
     """Revalidate and return the database-owned payload immediately before submit."""
+    if type(reservation) is not ExecutionReservation:
+        raise TypeError("execution reservation must use the exact ExecutionReservation type")
+    if (
+        type(reservation.action_id) is not str
+        or type(reservation.payload_json) is not str
+        or type(reservation.payload_hash) is not str
+        or (
+            reservation.execution_token is not None
+            and type(reservation.execution_token) is not str
+        )
+    ):
+        raise TypeError("execution reservation fields must use plain built-in types")
     action_id = reservation.action_id
     try:
         db.execute("BEGIN IMMEDIATE")
