@@ -47,5 +47,6 @@ jobs:
       - run: |
           python -m venv /tmp/event-lead-ops-wheel-test
           /tmp/event-lead-ops-wheel-test/bin/pip install dist/*.whl
-          /tmp/event-lead-ops-wheel-test/bin/event-lead-ops --db /tmp/wheel-test.sqlite3 init-db
-          /tmp/event-lead-ops-wheel-test/bin/event-lead-ops --db /tmp/wheel-test.sqlite3 status
+          install -d -m 700 /tmp/event-lead-ops-wheel-runtime
+          /tmp/event-lead-ops-wheel-test/bin/event-lead-ops --db /tmp/event-lead-ops-wheel-runtime/state.sqlite3 init-db
+          /tmp/event-lead-ops-wheel-test/bin/event-lead-ops --db /tmp/event-lead-ops-wheel-runtime/state.sqlite3 status
